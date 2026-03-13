@@ -54,6 +54,7 @@
 1. **GoldAPI.io** - 国际金价(美元/盎司),免费版每月 100 次请求
 2. **metals-api.com** - 备用国际金价源,免费版每月 50 次请求
 3. **新浪财经** - 国内黄金价格(人民币/克),无请求限制
+4. **exchangerate-api.io** - 实时汇率数据(美元兑人民币),免费版每月 1500 次请求
 
 ### 4.2 数据处理流程
 
@@ -126,7 +127,7 @@ CREATE TABLE analysis_signals (
     timestamp DATETIME NOT NULL,
     signal_type VARCHAR(20) NOT NULL,
     price_cny_per_gram REAL NOT NULL,
-    indicators JSON,
+    indicators TEXT,  -- JSON serialized string
     notified BOOLEAN DEFAULT FALSE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -407,6 +408,9 @@ pync==2.0.3
 python-dotenv==1.0.1
 pydantic-settings==2.6.1
 aiohttp==3.11.7
+pytest==8.3.4
+pytest-asyncio==0.24.0
+httpx==0.28.1
 ```
 
 ## 11. 错误处理与日志
