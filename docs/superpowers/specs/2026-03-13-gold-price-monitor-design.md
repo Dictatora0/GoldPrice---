@@ -50,21 +50,23 @@
 
 ### 4.1 数据源选择
 
-**多数据源策略:**
-1. **GoldAPI.io** - 国际金价(美元/盎司),免费版每月 100 次请求
-2. **metals-api.com** - 备用国际金价源,免费版每月 50 次请求
-3. **新浪财经** - 国内黄金价格(人民币/克),无请求限制
-4. **exchangerate-api.io** - 实时汇率数据(美元兑人民币),免费版每月 1500 次请求
+**多数据源策略(以国内金价为主):**
+1. **新浪财经** - 国内黄金价格(人民币/克),无请求限制,主要数据源
+2. **东方财富网** - 国内黄金价格(人民币/克),无请求限制,备用数据源
+3. **金投网** - 国内黄金价格(人民币/克),无请求限制,备用数据源
+
+**选择理由:**
+- 国内数据源直接提供人民币/克价格,无需汇率转换
+- 价格更贴近国内市场实际购买价格
+- 无 API 请求限制,可以更频繁采集
+- 数据稳定性好,适合长期监控
 
 ### 4.2 数据处理流程
 
-1. **并发请求:** 每 3 分钟并发请求所有数据源
-2. **单位转换:** 国际金价从美元/盎司转换为人民币/克
-   - 使用实时汇率 API 获取美元兑人民币汇率
-   - 转换公式: `CNY/g = (USD/oz × 汇率) / 31.1035`
-3. **数据验证:** 多源价格差异超过 5% 时记录异常
-4. **均价计算:** 取所有有效数据源的平均值作为最终价格
-5. **容错机制:** 单个数据源失败不影响整体,至少需要 1 个数据源成功
+1. **并发请求:** 每 3 分钟并发请求所有国内数据源
+2. **数据验证:** 多源价格差异超过 3% 时记录异常
+3. **均价计算:** 取所有有效数据源的平均值作为最终价格
+4. **容错机制:** 单个数据源失败不影响整体,至少需要 1 个数据源成功
 
 ### 4.3 数据模型
 
@@ -73,19 +75,18 @@
   "timestamp": "2026-03-13 18:45:00",
   "price_cny_per_gram": 485.32,
   "sources": {
-    "goldapi": 485.10,
-    "metals_api": 485.50,
-    "sina": 485.35
-  },
-  "exchange_rate": 7.25
+    "sina": 485.10,
+    "eastmoney": 485.50,
+    "gold_cn": 485.35
+  }
 }
 ```
 
 ### 4.4 采集器设计
 
 - **基类:** `BaseCollector` 定义统一接口
-- **具体实现:** `GoldAPICollector`, `MetalsAPICollector`, `SinaCollector`
-- **错误处理:** 网络超时、API 限流、数据格式错误等异常处理
+- **具体实现:** `SinaCollector`, `EastMoneyCollector`, `GoldCNCollector`
+- **错误处理:** 网络超时、数据格式错误等异常处理
 - **日志记录:** 记录每次采集的成功/失败状态
 
 ## 5. 数据存储模块详细设计
@@ -98,7 +99,6 @@ CREATE TABLE price_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp DATETIME NOT NULL,
     price_cny_per_gram REAL NOT NULL,
-    exchange_rate REAL,
     source_count INTEGER NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -112,8 +112,7 @@ CREATE TABLE price_sources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     price_history_id INTEGER NOT NULL,
     source_name VARCHAR(50) NOT NULL,
-    raw_price REAL NOT NULL,
-    price_unit VARCHAR(20) NOT NULL,
+    price_cny_per_gram REAL NOT NULL,
     is_valid BOOLEAN DEFAULT TRUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (price_history_id) REFERENCES price_history(id)
@@ -301,9 +300,9 @@ GoldPrice/
 │   ├── collectors/          # 数据采集模块
 │   │   ├── __init__.py
 │   │   ├── base.py          # 采集器基类
-│   │   ├── goldapi.py       # GoldAPI 采集器
-│   │   ├── metals_api.py    # Metals API 采集器
-│   │   └── sina.py          # 新浪财经采集器
+│   │   ├── sina.py          # 新浪财经采集器
+│   │   ├── eastmoney.py     # 东方财富采集器
+│   │   └── gold_cn.py       # 金投网采集器
 │   ├── analyzers/           # 智能分析模块
 │   │   ├── __init__.py
 │   │   ├── indicators.py    # 技术指标计算
@@ -345,10 +344,6 @@ GoldPrice/
 ### 9.1 环境变量 (.env)
 
 ```env
-# API Keys
-GOLDAPI_KEY=your_goldapi_key
-METALS_API_KEY=your_metals_api_key
-
 # 数据采集配置
 COLLECTION_INTERVAL=3  # 分钟
 DATA_SOURCE_TIMEOUT=10  # 秒
@@ -384,9 +379,8 @@ DEBUG=false
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    goldapi_key: str
-    metals_api_key: str
     collection_interval: int = 3
+    data_source_timeout: int = 10
     # ... 其他配置
 
     class Config:
@@ -419,7 +413,6 @@ httpx==0.28.1
 
 1. **数据采集错误:**
    - 网络超时: 重试 3 次,间隔 5 秒
-   - API 限流: 记录日志,跳过本次采集
    - 数据格式错误: 标记数据源为无效,继续其他源
 
 2. **数据库错误:**
