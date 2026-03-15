@@ -96,10 +96,11 @@ def test_price_history_downsample_interval(client):
     data = response.json()
 
     assert response.status_code == 200
-    # Expect last value per hour bucket
-    assert len(data["items"]) == 2
+    # Expect last value per hour bucket (3 buckets: 23:00, 00:00, 01:00)
+    assert len(data["items"]) == 3
     assert data["items"][0]["price_cny_per_gram"] == 481.0
-    assert data["items"][1]["price_cny_per_gram"] == 484.0
+    assert data["items"][1]["price_cny_per_gram"] == 483.0
+    assert data["items"][2]["price_cny_per_gram"] == 484.0
 
 
 def test_signals_endpoint_returns_recent(client):
