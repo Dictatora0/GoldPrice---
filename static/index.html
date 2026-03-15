@@ -76,16 +76,28 @@
             <h2>价格走势与信号</h2>
             <p class="muted">均线 / 布林带 / 信号点</p>
           </div>
-          <div class="range-switch" id="range-switch">
-            <button data-range="7D">7天</button>
-            <button data-range="30D" class="active">30天</button>
-            <button data-range="90D">90天</button>
-            <button data-range="1Y">1年</button>
-            <button data-range="ALL">全部</button>
+          <div class="chart-controls">
+            <div class="chart-type-switch" id="chart-type-switch">
+              <button data-type="line" class="active">折线图</button>
+              <button data-type="candlestick">K线图</button>
+            </div>
+            <div class="range-switch" id="range-switch">
+              <button data-range="7D">7天</button>
+              <button data-range="30D" class="active">30天</button>
+              <button data-range="90D">90天</button>
+              <button data-range="1Y">1年</button>
+              <button data-range="ALL">全部</button>
+            </div>
           </div>
         </div>
         <div class="chart-wrap">
           <canvas id="priceChart"></canvas>
+          <div id="candlestick-container" style="display: none;"></div>
+        </div>
+        <div class="interval-switch" id="interval-switch" style="display: none; margin-top: 1rem;">
+          <button data-interval="1h" class="active">1小时</button>
+          <button data-interval="4h">4小时</button>
+          <button data-interval="1d">1天</button>
         </div>
       </section>
 
@@ -108,7 +120,9 @@
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <script src="/static/js/websocket.js"></script>
+    <script src="/static/js/candlestick.js"></script>
     <script src="/static/js/chart.js"></script>
   </body>
 </html>
