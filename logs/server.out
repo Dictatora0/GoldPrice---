@@ -1,0 +1,37 @@
+INFO:     Started server process [83441]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:60555 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60555 - "GET /static/css/style.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60565 - "GET /static/js/websocket.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60566 - "GET /static/js/candlestick.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60567 - "GET /static/js/chart.js HTTP/1.1" 200 OK
+INFO:     ('127.0.0.1', 60577) - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:60555 - "GET /api/price/current HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60566 - "GET /api/analysis/indicators HTTP/1.1" 200 OK
+/Users/lifulin/Desktop/GoldPrice/app/api/price.py:34: FutureWarning: 'H' is deprecated and will be removed in a future version, please use 'h' instead.
+  df = df.resample(interval).last().dropna()
+INFO:     127.0.0.1:60567 - "GET /api/analysis/signals?days=30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60565 - "GET /api/price/history?days=30&interval=2h HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60555 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     connection closed
+INFO:     127.0.0.1:60958 - "GET / HTTP/1.1" 200 OK
+INFO:     ('127.0.0.1', 60962) - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:60958 - "GET /api/price/current HTTP/1.1" 200 OK
+/Users/lifulin/Desktop/GoldPrice/app/api/price.py:34: FutureWarning: 'H' is deprecated and will be removed in a future version, please use 'h' instead.
+  df = df.resample(interval).last().dropna()
+INFO:     127.0.0.1:60961 - "GET /api/analysis/signals?days=30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60960 - "GET /api/analysis/indicators HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60959 - "GET /api/price/history?days=30&interval=2h HTTP/1.1" 200 OK
+/Users/lifulin/.pyenv/versions/3.10.13/lib/python3.10/asyncio/runners.py:44: RuntimeWarning: coroutine 'collect_job' was never awaited
+  return loop.run_until_complete(main)
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+INFO:     127.0.0.1:61543 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     connection closed
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [83441]

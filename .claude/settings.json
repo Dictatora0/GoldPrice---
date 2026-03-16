@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/test_advisor.py -v)",
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(python -m pytest tests/test_api.py::test_price_history_downsample_interval -v)",
+      "Bash(python -m pytest tests/ -v --tb=line)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(python -c \"from app.database import get_session; from app.models import GoldPrice; from datetime import datetime; db = get_session\\(\\); prices = db.query\\(GoldPrice\\).order_by\\(GoldPrice.timestamp.desc\\(\\)\\).limit\\(5\\).all\\(\\); print\\(''最近5条价格记录:''\\); [print\\(f''{p.timestamp} - {p.price_cny_per_gram}元/克 - 来源:{p.source}''\\) for p in prices]; db.close\\(\\)\")",
+      "Bash(python -c \"from app.database import get_session; from app.models import PriceHistory; from datetime import datetime; db = get_session\\(\\); prices = db.query\\(PriceHistory\\).order_by\\(PriceHistory.timestamp.desc\\(\\)\\).limit\\(5\\).all\\(\\); print\\(''最近5条价格记录:''\\); [print\\(f''{p.timestamp} - {p.price_cny_per_gram}元/克 - 来源数:{p.source_count}''\\) for p in prices]; db.close\\(\\)\")",
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(python -m json.tool)",
+      "Bash(kill 83441)",
+      "Bash(python -c \"from app.database import get_session; from app.models import PriceHistory; from datetime import datetime; db = get_session\\(\\); prices = db.query\\(PriceHistory\\).order_by\\(PriceHistory.timestamp.desc\\(\\)\\).limit\\(3\\).all\\(\\); print\\(''最新价格记录:''\\); [print\\(f''{p.timestamp} - {p.price_cny_per_gram}元/克''\\) for p in prices]; db.close\\(\\)\")",
+      "Bash(python -c \"from app.database import get_session; from app.models import PriceHistory; db = get_session\\(\\); count = db.query\\(PriceHistory\\).count\\(\\); print\\(f''Total records: {count}''\\); db.close\\(\\)\")",
+      "Bash(pip install:*)",
+      "Bash(curl -s http://localhost:8000/healthcheck)",
+      "Bash(curl -s http://localhost:8000/metrics)",
+      "Bash(python run.py)",
+      "Bash(pip uninstall:*)"
+    ]
+  }
+}
