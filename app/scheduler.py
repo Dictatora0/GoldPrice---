@@ -188,8 +188,11 @@ def start_scheduler(app=None):
         return
 
     scheduler = AsyncIOScheduler()
+
+    # 使用 functools.partial 来传递 app 参数
+    from functools import partial
     scheduler.add_job(
-        lambda: collect_job(app),
+        partial(collect_job, app),
         "interval",
         minutes=settings.collection_interval,
         id="collect_job",

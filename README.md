@@ -11,23 +11,29 @@
 - 📈 **专业图表** - 折线图、K线图、活跃度指标
 - 🔔 **系统通知** - macOS 通知提醒买入时机
 - 💾 **数据存储** - SQLite 持久化存储,自动备份
+- 🚀 **Redis缓存** - 高性能缓存层,支持高并发访问
+- 📊 **Prometheus监控** - 完整的指标收集和监控
+- 🔍 **结构化日志** - PostgreSQL日志存储,Web日志查看器
+- 🔔 **多渠道告警** - macOS通知、Webhook、Slack集成
 
 ## 🚀 快速开始
 
-### 1. 安装依赖
+### 方式一: 本地运行
+
+#### 1. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. 配置环境变量
+#### 2. 配置环境变量
 
 ```bash
 cp .env.example .env
 # 根据需要编辑 .env 文件
 ```
 
-### 3. 初始化数据库
+#### 3. 初始化数据库
 
 ```bash
 ./manage.sh init-db
@@ -35,7 +41,7 @@ cp .env.example .env
 python run.py --init-db
 ```
 
-### 4. 启动服务
+#### 4. 启动服务
 
 ```bash
 ./manage.sh start
@@ -43,9 +49,27 @@ python run.py --init-db
 python run.py
 ```
 
-### 5. 访问界面
+#### 5. 访问界面
 
 打开浏览器访问: http://localhost:8000
+
+### 方式二: Docker Compose (推荐)
+
+```bash
+# 启动所有服务(包括Redis和PostgreSQL)
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
+
+# 停止服务
+docker-compose down
+```
+
+访问地址:
+- 主应用: http://localhost:8000
+- Prometheus指标: http://localhost:9090/metrics
+- 健康检查: http://localhost:8000/healthcheck
 
 ## 📋 管理命令
 

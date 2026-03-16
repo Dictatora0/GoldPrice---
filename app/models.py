@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Boolean, ForeignKey, Text, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -19,6 +19,10 @@ class PriceHistory(Base):
 
     sources = relationship("PriceSource", back_populates="price_history")
 
+    __table_args__ = (
+        Index('idx_timestamp_price', 'timestamp', 'price_cny_per_gram'),
+    )
+
 
 class PriceSource(Base):
     __tablename__ = "price_sources"
@@ -32,6 +36,10 @@ class PriceSource(Base):
 
     price_history = relationship("PriceHistory", back_populates="sources")
 
+    __table_args__ = (
+        Index('idx_price_history_source', 'price_history_id', 'source_name'),
+    )
+
 
 class AnalysisSignal(Base):
     __tablename__ = "analysis_signals"
@@ -43,3 +51,7 @@ class AnalysisSignal(Base):
     indicators = Column(Text)
     notified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        Index('idx_notified_timestamp', 'notified', 'timestamp'),
+    )

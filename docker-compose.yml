@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  goldprice:
+    build: .
+    ports:
+      - "8000:8000"
+      - "9090:9090"
+    environment:
+      - REDIS_HOST=redis
+      - POSTGRES_HOST=postgres
+      - REDIS_ENABLED=true
+      - LOG_TO_POSTGRES=true
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - goldprice-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - goldprice-network
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=goldprice_logs
+      - POSTGRES_USER=goldprice
+      - POSTGRES_PASSWORD=changeme
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - goldprice-network
+
+volumes:
+  redis_data:
+  postgres_data:
+
+networks:
+  goldprice-network:
+    driver: bridge
