@@ -12,7 +12,7 @@ from app.api.websocket import manager as ws_manager
 from app.database import init_db
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.logging_config import setup_logging, get_logger
-from app.monitoring import metrics_collector, MetricsMiddleware, health_check
+from app.monitoring import metrics_collector, MetricsMiddleware, health_check, alert_manager
 from app.cache import cache_manager
 from config import settings
 
@@ -28,6 +28,18 @@ async def collect_system_metrics():
         except Exception as e:
             logger.error(f"System metrics collection error: {e}")
             await asyncio.sleep(30)
+
+
+async def evaluate_alerts():
+    """Background task to evaluate alert rules every 60 seconds."""
+    while True:
+        try:
+            alert_manager.evaluate_rules()
+            await asyncio.sleep(60)
+        except Exception as e:
+            logger.error(f"Alert evaluation error: {e}")
+            await asyncio.sleep(60)
+
 
 
 def cleanup_old_logs():
@@ -103,6 +115,9 @@ def create_app() -> FastAPI:
         if settings.prometheus_enabled:
             app.state.metrics_task = asyncio.create_task(collect_system_metrics())
             logger.info("System metrics collection started")
+        # Start alert evaluation background task
+        app.state.alerts_task = asyncio.create_task(evaluate_alerts())
+        logger.info("Alert evaluation started")
         logger.info("Application started successfully")
 
     @app.on_event("shutdown")

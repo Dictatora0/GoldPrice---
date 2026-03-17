@@ -302,3 +302,51 @@
 
 (Background on this error at: https://sqlalche.me/e/20/e3q8)
 2026-03-17 23:13:18 | WARNING | app.main:cleanup_old_logs - Unable to connect to log database for cleanup
+2026-03-17 23:15:46 | INFO | app.logging_config:setup_logging - PostgreSQL logging handler initialized
+2026-03-17 23:15:46 | INFO | app.logging_config:setup_logging - Logging system initialized
+2026-03-17 23:15:46 | ERROR | app.main:cleanup_old_logs - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-17 23:15:46 | WARNING | app.main:cleanup_old_logs - Unable to connect to log database for cleanup
+2026-03-17 23:18:58 | INFO | app.logging_config:setup_logging - PostgreSQL logging handler initialized
+2026-03-17 23:18:58 | INFO | app.logging_config:setup_logging - Logging system initialized
+2026-03-17 23:19:01 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:19:01 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:19:01 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:19:01 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:19:02 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:19:02 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:19:02 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:19:02 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:19:02 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:19:02 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:19:03 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:19:03 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:19:03 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:19:03 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:19:03 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:19:03 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:19:04 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:19:04 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:19:04 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:19:04 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:19:04 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:19:04 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:19:05 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:19:05 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:19:05 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:19:05 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:19:05 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:19:05 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:19:06 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:19:06 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:19:26 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:19:26 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:19:26 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:19:26 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:19:27 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:19:27 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:19:29 | ERROR | app.main:cleanup_old_logs - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-17 23:19:29 | WARNING | app.main:cleanup_old_logs - Unable to connect to log database for cleanup
