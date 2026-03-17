@@ -53,6 +53,7 @@ class BaseCollector(ABC):
         """Save price to database using connection pool."""
         from app.database import get_db_session
         from app.models import PriceSource
+        from app.cache import cache_manager
 
         with get_db_session() as session:
             price_source = PriceSource(
@@ -64,3 +65,10 @@ class BaseCollector(ABC):
             session.add(price_source)
 
         logger.info(f"Saved price: ¥{price:.2f}")
+
+        # After saving price to database, invalidate all cached data
+        cache_manager.delete_pattern("indicators:*")
+        cache_manager.delete_pattern("signals:*")
+        cache_manager.delete_pattern("analysis:*")
+        cache_manager.delete_pattern("price:*")
+        cache_manager.delete_pattern("history:*")

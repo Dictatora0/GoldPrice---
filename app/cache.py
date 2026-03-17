@@ -76,6 +76,36 @@ class CacheManager:
         except Exception:
             return False
 
+    def delete_pattern(self, pattern: str) -> bool:
+        """删除匹配模式的缓存键"""
+        if not self.enabled or not self.client:
+            return False
+
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            return loop.run_until_complete(self._async_delete_pattern(pattern))
+        except Exception:
+            return False
+
+    async def _async_delete_pattern(self, pattern: str) -> bool:
+        """异步删除匹配模式的缓存键"""
+        try:
+            cursor = 0
+            while True:
+                cursor, keys = await self.client.scan(
+                    cursor,
+                    match=pattern,
+                    count=100
+                )
+                if keys:
+                    await self.client.delete(*keys)
+                if cursor == 0:
+                    break
+            return True
+        except Exception:
+            return False
+
     async def exists(self, key: str) -> bool:
         """检查键是否存在"""
         if not self.enabled or not self.client:
