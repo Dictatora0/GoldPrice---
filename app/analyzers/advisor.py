@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from app.analyzers.indicators import IndicatorCalculator
-from app.database import get_session
+from app.database import get_db_session
 from app.models import PriceHistory
 
 
@@ -20,8 +20,7 @@ class MarketAdvisor:
         - today_change: 今日变化
         - momentum: 动量状态
         """
-        session = get_session()
-        try:
+        with get_db_session() as session:
             now = datetime.now()
 
             # 最近1小时
@@ -65,8 +64,6 @@ class MarketAdvisor:
                 result["momentum"] = "down"
 
             return result
-        finally:
-            session.close()
 
     def _calculate_score(self, indicators: Dict) -> int:
         """计算综合评分 (0-100分,越低越适合买入)"""

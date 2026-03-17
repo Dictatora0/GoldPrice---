@@ -1,5 +1,15 @@
 import pytest
+import os
 from app.analyzers.advisor import MarketAdvisor
+from app.database import init_db
+from config import settings
+
+
+def setup_function(_):
+    """Initialize database for tests that need it"""
+    if os.path.exists(settings.database_path):
+        os.remove(settings.database_path)
+    init_db()
 
 
 def test_calculate_score_oversold_condition():

@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import List, Dict
-from app.database import get_session
+from app.database import get_db_session
 from app.models import PriceHistory
 from config import settings
 
@@ -22,8 +22,7 @@ class IndicatorCalculator:
 
     def get_price_data(self, days: int = 90) -> pd.DataFrame:
         """获取历史价格数据"""
-        session = get_session()
-        try:
+        with get_db_session() as session:
             records = session.query(PriceHistory).order_by(
                 PriceHistory.timestamp.desc()
             ).limit(days * 480).all()  # 每天480条记录(3分钟一次)
@@ -42,8 +41,6 @@ class IndicatorCalculator:
             df['timestamp'] = pd.to_datetime(df['timestamp'])
             df = df.set_index('timestamp')
             return df
-        finally:
-            session.close()
 
     def calculate_ma(self, df: pd.DataFrame) -> Dict[str, float]:
         """计算移动平均线"""

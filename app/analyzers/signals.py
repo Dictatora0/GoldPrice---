@@ -1,5 +1,5 @@
 from app.analyzers.indicators import IndicatorCalculator
-from app.database import get_session
+from app.database import get_db_session
 from app.models import PriceHistory, AnalysisSignal
 from datetime import datetime, timedelta
 from typing import Optional
@@ -27,8 +27,7 @@ class SignalDetector:
         - trend: 趋势方向 (up/down/flat)
         - acceleration: 加速度(正值表示加速上涨或减速下跌)
         """
-        session = get_session()
-        try:
+        with get_db_session() as session:
             cutoff_time = datetime.now() - timedelta(minutes=minutes)
             prices = session.query(PriceHistory)\
                 .filter(PriceHistory.timestamp >= cutoff_time)\
@@ -64,8 +63,6 @@ class SignalDetector:
                 "trend": trend,
                 "acceleration": acceleration
             }
-        finally:
-            session.close()
 
     def _analyze_multi_timeframe(self) -> dict:
         """
@@ -73,8 +70,7 @@ class SignalDetector:
 
         返回各时间周期的趋势状态
         """
-        session = get_session()
-        try:
+        with get_db_session() as session:
             now = datetime.now()
 
             # 短期(1小时)
@@ -119,8 +115,6 @@ class SignalDetector:
                     get_trend(long_term)
                 )
             }
-        finally:
-            session.close()
 
     def _check_trend_alignment(self, short, mid, long) -> str:
         """检查多周期趋势是否一致"""
@@ -350,8 +344,7 @@ class SignalDetector:
 
     def _save_signal(self, indicators: dict, evaluation: dict):
         """保存买入信号到数据库"""
-        session = get_session()
-        try:
+        with get_db_session() as session:
             # 合并指标和评估结果
             signal_data = {
                 **indicators,
@@ -374,13 +367,10 @@ class SignalDetector:
                 f"Enhanced buy signal saved: ¥{indicators['current_price']}/g, "
                 f"score={evaluation['score']}, reasons={', '.join(evaluation['reasons'])}"
             )
-        finally:
-            session.close()
 
     def get_latest_signal(self) -> Optional[dict]:
         """获取最新的买入信号详情"""
-        session = get_session()
-        try:
+        with get_db_session() as session:
             signal = session.query(AnalysisSignal)\
                 .filter(AnalysisSignal.notified == False)\
                 .order_by(AnalysisSignal.timestamp.desc())\
@@ -396,13 +386,10 @@ class SignalDetector:
                 "indicators": indicators,
                 "timestamp": signal.timestamp.isoformat()
             }
-        finally:
-            session.close()
 
     def should_notify(self) -> bool:
         """检查是否应该发送通知(24小时内未通知过)"""
-        session = get_session()
-        try:
+        with get_db_session() as session:
             last_notification = session.query(AnalysisSignal).filter(
                 AnalysisSignal.notified == True,
                 AnalysisSignal.timestamp
@@ -410,13 +397,10 @@ class SignalDetector:
             ).first()
 
             return last_notification is None
-        finally:
-            session.close()
 
     def mark_notified(self):
         """标记最新信号已通知"""
-        session = get_session()
-        try:
+        with get_db_session() as session:
             latest_signal = session.query(AnalysisSignal).filter(
                 AnalysisSignal.notified == False
             ).order_by(AnalysisSignal.timestamp.desc()).first()
@@ -424,5 +408,3 @@ class SignalDetector:
             if latest_signal:
                 latest_signal.notified = True
                 session.commit()
-        finally:
-            session.close()
