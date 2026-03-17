@@ -109,3 +109,15 @@ def test_signals_endpoint_returns_recent(client):
     assert response.status_code == 200
     assert len(data["items"]) == 1
     assert data["items"][0]["signal_type"] == "buy"
+
+
+def test_metrics_endpoint(client):
+    """Test Prometheus metrics endpoint."""
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "text/plain" in response.headers["content-type"]
+    # Check for some expected metrics
+    content = response.text
+    assert "gold_http_requests_total" in content or "gold_collector_success_total" in content
+

@@ -31,13 +31,33 @@ class BaseCollector(ABC):
         Returns:
             Optional[float]: 价格,如果获取失败返回 None
         """
+        from app.monitoring.metrics import metrics_collector
+        import time
+
+        start_time = time.time()
+
         for attempt in range(1, 4):
             try:
                 price = await self.fetch_price()
                 if price and price > 0:
+                    duration = time.time() - start_time
+
+                    # Record success metrics
+                    metrics_collector.record_collection_success(
+                        source=self.source_name,
+                        duration=duration
+                    )
+
+                    # Update price gauge
+                    metrics_collector.update_price_gauge(
+                        price=price,
+                        source=self.source_name
+                    )
+
                     logger.info(f"{self.source_name} collected price: ¥{price}/g")
                     return price
                 logger.warning(f"{self.source_name} returned invalid price: {price}")
+                metrics_collector.record_collection_failure(source=self.source_name)
                 return None
             except Exception as e:
                 logger.warning(
@@ -46,6 +66,8 @@ class BaseCollector(ABC):
                 if attempt < 3:
                     await asyncio.sleep(5)
 
+        # Record failure after all retries
+        metrics_collector.record_collection_failure(source=self.source_name)
         logger.error(f"{self.source_name} collection failed after retries")
         return None
 

@@ -41,19 +41,27 @@ class CacheManager:
 
     def get(self, key: str) -> Optional[str]:
         """获取缓存"""
+        from app.monitoring.metrics import metrics_collector
+
         if not self.enabled or not self.client:
             self.cache_misses += 1
             return None
 
         try:
             result = self.client.get(key)
+            key_prefix = key.split(':')[1] if ':' in key else key.split(':')[0]
+
             if result is not None:
                 self.cache_hits += 1
+                metrics_collector.record_cache_hit(key_prefix=key_prefix)
             else:
                 self.cache_misses += 1
+                metrics_collector.record_cache_miss(key_prefix=key_prefix)
             return result
         except Exception:
             self.cache_misses += 1
+            key_prefix = key.split(':')[1] if ':' in key else key.split(':')[0]
+            metrics_collector.record_cache_miss(key_prefix=key_prefix)
             return None
 
     def set(self, key: str, value: str, ttl: int) -> bool:

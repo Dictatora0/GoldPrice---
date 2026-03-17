@@ -1,4 +1,5 @@
 import os
+import asyncio
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -14,6 +15,17 @@ from app.cache import cache_manager
 from config import settings
 
 logger = get_logger(__name__)
+
+
+async def collect_system_metrics():
+    """Background task to collect system metrics every 30 seconds."""
+    while True:
+        try:
+            metrics_collector.update_system_metrics()
+            await asyncio.sleep(30)
+        except Exception as e:
+            logger.error(f"System metrics collection error: {e}")
+            await asyncio.sleep(30)
 
 
 def create_app() -> FastAPI:
@@ -60,13 +72,17 @@ def create_app() -> FastAPI:
         app.state.cache_manager = cache_manager
         app.state.metrics_collector = metrics_collector
         start_scheduler(app)
+        # Start system metrics collection background task
+        if settings.prometheus_enabled:
+            app.state.metrics_task = asyncio.create_task(collect_system_metrics())
+            logger.info("System metrics collection started")
         logger.info("Application started successfully")
 
     @app.on_event("shutdown")
     async def on_shutdown():
         logger.info("Shutting down application")
         shutdown_scheduler()
-        await cache_manager.close()
+        cache_manager.close()
         logger.info("Application shutdown complete")
 
     return app

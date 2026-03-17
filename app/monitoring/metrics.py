@@ -22,6 +22,7 @@ class MetricsCollector:
             ['source'],
             registry=self.registry
         )
+        self.collection_success = self.collector_success_total  # Alias for tests
 
         self.collector_failure_total = Counter(
             'gold_collector_failure_total',
@@ -29,6 +30,7 @@ class MetricsCollector:
             ['source'],
             registry=self.registry
         )
+        self.collection_failure = self.collector_failure_total  # Alias for tests
 
         self.collector_duration_seconds = Histogram(
             'gold_collector_duration_seconds',
@@ -36,10 +38,19 @@ class MetricsCollector:
             ['source'],
             registry=self.registry
         )
+        self.collection_duration = self.collector_duration_seconds  # Alias for tests
 
         self.price_value = Gauge(
             'gold_price_cny_per_gram',
             'Current gold price in CNY per gram',
+            registry=self.registry
+        )
+
+        # Current price gauge with source label
+        self.current_price = Gauge(
+            'gold_current_price',
+            'Current gold price',
+            ['source'],
             registry=self.registry
         )
 
@@ -79,6 +90,7 @@ class MetricsCollector:
             ['key_prefix'],
             registry=self.registry
         )
+        self.cache_hits = self.cache_hits_total  # Alias for tests
 
         self.cache_misses_total = Counter(
             'gold_cache_misses_total',
@@ -86,6 +98,7 @@ class MetricsCollector:
             ['key_prefix'],
             registry=self.registry
         )
+        self.cache_misses = self.cache_misses_total  # Alias for tests
 
         self.redis_connections = Gauge(
             'gold_redis_connections',
@@ -132,6 +145,12 @@ class MetricsCollector:
         if not self.enabled:
             return
         self.price_value.set(price)
+
+    def update_price_gauge(self, price: float, source: str):
+        """Update current price gauge with source label."""
+        if not self.enabled:
+            return
+        self.current_price.labels(source=source).set(price)
 
     def record_http_request(self, method: str, endpoint: str, status: int, duration: float):
         """记录HTTP请求"""
