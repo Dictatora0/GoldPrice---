@@ -20,6 +20,8 @@ class CacheManager:
     def __init__(self):
         self.enabled = settings.redis_enabled and REDIS_AVAILABLE
         self.client: Optional[aioredis.Redis] = None
+        self.cache_hits = 0
+        self.cache_misses = 0
 
         if self.enabled:
             try:
@@ -38,11 +40,18 @@ class CacheManager:
     async def get(self, key: str) -> Optional[str]:
         """获取缓存"""
         if not self.enabled or not self.client:
+            self.cache_misses += 1
             return None
 
         try:
-            return await self.client.get(key)
+            result = await self.client.get(key)
+            if result is not None:
+                self.cache_hits += 1
+            else:
+                self.cache_misses += 1
+            return result
         except Exception:
+            self.cache_misses += 1
             return None
 
     async def set(self, key: str, value: str, ttl: int) -> bool:
@@ -91,6 +100,18 @@ class CacheManager:
         """关闭连接"""
         if self.client:
             await self.client.close()
+
+    def get_stats(self) -> dict:
+        """获取缓存统计信息"""
+        total_requests = self.cache_hits + self.cache_misses
+        hit_rate = self.cache_hits / total_requests if total_requests > 0 else 0.0
+
+        return {
+            'hits': self.cache_hits,
+            'misses': self.cache_misses,
+            'total_requests': total_requests,
+            'hit_rate': hit_rate
+        }
 
 
 # 全局缓存管理器实例
