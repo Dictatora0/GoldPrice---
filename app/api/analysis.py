@@ -6,8 +6,10 @@ from fastapi import APIRouter, Query, HTTPException
 
 from app.analyzers.indicators import IndicatorCalculator
 from app.analyzers.advisor import MarketAdvisor
+from app.analyzers.signals import SignalDetector
 from app.database import get_session
 from app.models import AnalysisSignal
+from app.cache import cache_manager
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -15,7 +17,7 @@ router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 @router.get("/indicators")
 def get_indicators():
     calculator = IndicatorCalculator()
-    indicators = calculator.calculate_all()
+    indicators = calculator.calculate_all_cached()
     if not indicators:
         return {"status": "insufficient_data", "items": {}}
     # Convert numpy types to native for JSON
@@ -60,7 +62,7 @@ def get_signals(days: int = Query(7, ge=1, le=3650)):
 def get_advice():
     """获取智能买入建议和市场分析"""
     advisor = MarketAdvisor()
-    advice = advisor.analyze()
+    advice = advisor.analyze_cached()
 
     if advice is None:
         raise HTTPException(
@@ -69,3 +71,25 @@ def get_advice():
         )
 
     return {"data": advice}
+
+
+@router.get("/buy-signal")
+def get_buy_signal_evaluation():
+    """获取买入信号评估(带缓存)"""
+    detector = SignalDetector()
+    evaluation = detector.evaluate_buy_signal_cached()
+
+    if evaluation is None:
+        raise HTTPException(
+            status_code=503,
+            detail="数据积累中,请稍后再试。"
+        )
+
+    return {"data": evaluation}
+
+
+@router.get("/cache/stats")
+def get_cache_stats():
+    """获取缓存统计信息"""
+    stats = cache_manager.get_stats()
+    return {"data": stats}
