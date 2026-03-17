@@ -1,15 +1,17 @@
 import json
 import hashlib
+import asyncio
+import inspect
 from typing import Optional, Any, Callable
 from functools import wraps
 from datetime import datetime
 
 try:
-    import redis.asyncio as aioredis
+    import redis
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False
-    aioredis = None
+    redis = None
 
 from config import settings
 
@@ -19,13 +21,13 @@ class CacheManager:
 
     def __init__(self):
         self.enabled = settings.redis_enabled and REDIS_AVAILABLE
-        self.client: Optional[aioredis.Redis] = None
+        self.client: Optional[redis.Redis] = None
         self.cache_hits = 0
         self.cache_misses = 0
 
         if self.enabled:
             try:
-                self.client = aioredis.Redis(
+                self.client = redis.Redis(
                     host=settings.redis_host,
                     port=settings.redis_port,
                     db=settings.redis_db,
@@ -37,14 +39,14 @@ class CacheManager:
                 print(f"Redis connection failed: {e}, falling back to no cache")
                 self.enabled = False
 
-    async def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> Optional[str]:
         """获取缓存"""
         if not self.enabled or not self.client:
             self.cache_misses += 1
             return None
 
         try:
-            result = await self.client.get(key)
+            result = self.client.get(key)
             if result is not None:
                 self.cache_hits += 1
             else:
@@ -54,24 +56,24 @@ class CacheManager:
             self.cache_misses += 1
             return None
 
-    async def set(self, key: str, value: str, ttl: int) -> bool:
+    def set(self, key: str, value: str, ttl: int) -> bool:
         """设置缓存"""
         if not self.enabled or not self.client:
             return False
 
         try:
-            await self.client.setex(key, ttl, value)
+            self.client.setex(key, ttl, value)
             return True
         except Exception:
             return False
 
-    async def delete(self, key: str) -> bool:
+    def delete(self, key: str) -> bool:
         """删除缓存"""
         if not self.enabled or not self.client:
             return False
 
         try:
-            await self.client.delete(key)
+            self.client.delete(key)
             return True
         except Exception:
             return False
@@ -82,54 +84,45 @@ class CacheManager:
             return False
 
         try:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            return loop.run_until_complete(self._async_delete_pattern(pattern))
-        except Exception:
-            return False
-
-    async def _async_delete_pattern(self, pattern: str) -> bool:
-        """异步删除匹配模式的缓存键"""
-        try:
             cursor = 0
             while True:
-                cursor, keys = await self.client.scan(
+                cursor, keys = self.client.scan(
                     cursor,
                     match=pattern,
                     count=100
                 )
                 if keys:
-                    await self.client.delete(*keys)
+                    self.client.delete(*keys)
                 if cursor == 0:
                     break
             return True
         except Exception:
             return False
 
-    async def exists(self, key: str) -> bool:
+    def exists(self, key: str) -> bool:
         """检查键是否存在"""
         if not self.enabled or not self.client:
             return False
 
         try:
-            return await self.client.exists(key) > 0
+            return self.client.exists(key) > 0
         except Exception:
             return False
 
-    async def ping(self) -> bool:
+    def ping(self) -> bool:
         """检查Redis连接"""
         if not self.enabled or not self.client:
             return False
 
         try:
-            return await self.client.ping()
+            return self.client.ping()
         except Exception:
             return False
 
-    async def close(self):
+    def close(self):
         """关闭连接"""
         if self.client:
-            await self.client.close()
+            self.client.close()
 
     def get_stats(self) -> dict:
         """获取缓存统计信息"""
@@ -157,41 +150,74 @@ def hash_args(*args, **kwargs) -> str:
 
 
 def cache_result(key_prefix: str, ttl: int):
-    """缓存装饰器"""
+    """缓存装饰器 - 支持同步和异步函数"""
     def decorator(func: Callable):
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            # 生成缓存键
-            args_hash = hash_args(*args, **kwargs)
-            cache_key = f"gold:{key_prefix}:{args_hash}"
+        is_async = asyncio.iscoroutinefunction(func)
 
-            # 尝试从缓存获取
-            cached = await cache_manager.get(cache_key)
-            if cached:
+        if is_async:
+            @wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                # 生成缓存键
+                args_hash = hash_args(*args, **kwargs)
+                cache_key = f"gold:{key_prefix}:{args_hash}"
+
+                # 尝试从缓存获取
+                cached = cache_manager.get(cache_key)
+                if cached:
+                    try:
+                        return json.loads(cached)
+                    except json.JSONDecodeError:
+                        pass
+
+                # 缓存未命中,执行函数
+                result = await func(*args, **kwargs)
+
+                # 写入缓存
                 try:
-                    return json.loads(cached)
-                except json.JSONDecodeError:
+                    cache_manager.set(
+                        cache_key,
+                        json.dumps(result, default=str),
+                        ttl
+                    )
+                except Exception:
                     pass
 
-            # 缓存未命中,执行函数
-            result = await func(*args, **kwargs)
+                return result
+            return async_wrapper
+        else:
+            @wraps(func)
+            def sync_wrapper(*args, **kwargs):
+                # 生成缓存键
+                args_hash = hash_args(*args, **kwargs)
+                cache_key = f"gold:{key_prefix}:{args_hash}"
 
-            # 写入缓存
-            try:
-                await cache_manager.set(
-                    cache_key,
-                    json.dumps(result, default=str),
-                    ttl
-                )
-            except Exception:
-                pass
+                # 尝试从缓存获取
+                cached = cache_manager.get(cache_key)
+                if cached:
+                    try:
+                        return json.loads(cached)
+                    except json.JSONDecodeError:
+                        pass
 
-            return result
-        return wrapper
+                # 缓存未命中,执行函数
+                result = func(*args, **kwargs)
+
+                # 写入缓存
+                try:
+                    cache_manager.set(
+                        cache_key,
+                        json.dumps(result, default=str),
+                        ttl
+                    )
+                except Exception:
+                    pass
+
+                return result
+            return sync_wrapper
     return decorator
 
 
-async def invalidate_cache(key_pattern: str):
+def invalidate_cache(key_pattern: str):
     """清除缓存"""
     if not cache_manager.enabled or not cache_manager.client:
         return
@@ -200,13 +226,13 @@ async def invalidate_cache(key_pattern: str):
         # 使用SCAN而不是KEYS避免阻塞
         cursor = 0
         while True:
-            cursor, keys = await cache_manager.client.scan(
+            cursor, keys = cache_manager.client.scan(
                 cursor,
                 match=f"gold:{key_pattern}*",
                 count=100
             )
             if keys:
-                await cache_manager.client.delete(*keys)
+                cache_manager.client.delete(*keys)
             if cursor == 0:
                 break
     except Exception:
