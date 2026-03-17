@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 import asyncio
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -47,3 +48,19 @@ class BaseCollector(ABC):
 
         logger.error(f"{self.source_name} collection failed after retries")
         return None
+
+    def save_price(self, price: float, metadata: dict = None):
+        """Save price to database using connection pool."""
+        from app.database import get_db_session
+        from app.models import PriceSource
+
+        with get_db_session() as session:
+            price_source = PriceSource(
+                price_history_id=1,  # This would be set by the caller in practice
+                source_name=self.source_name,
+                price_cny_per_gram=price,
+                is_valid=True
+            )
+            session.add(price_source)
+
+        logger.info(f"Saved price: ¥{price:.2f}")
