@@ -17,3 +17,12 @@
 2026-03-17 23:19:29 | ERROR | app.main:cleanup_old_logs:67 - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
 
 (Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-17 23:25:25 | ERROR | app.main:cleanup_old_logs:67 - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-17 23:27:54 | ERROR | app.main:cleanup_old_logs:67 - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-17 23:32:23 | ERROR | app.main:cleanup_old_logs:67 - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)

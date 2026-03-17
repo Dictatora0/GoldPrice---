@@ -350,3 +350,165 @@
 
 (Background on this error at: https://sqlalche.me/e/20/e3q8)
 2026-03-17 23:19:29 | WARNING | app.main:cleanup_old_logs - Unable to connect to log database for cleanup
+2026-03-17 23:24:54 | INFO | app.logging_config:setup_logging - PostgreSQL logging handler initialized
+2026-03-17 23:24:54 | INFO | app.logging_config:setup_logging - Logging system initialized
+2026-03-17 23:24:57 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:24:57 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:24:57 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:24:57 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:24:58 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:24:58 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:24:58 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:24:58 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:24:58 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:24:58 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:24:59 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:24:59 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:24:59 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:24:59 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:24:59 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:24:59 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:25:00 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:25:00 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:25:00 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:25:00 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:25:00 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:25:00 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:25:01 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:25:01 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:25:01 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:25:01 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:25:01 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:25:01 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:25:02 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:25:02 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:25:22 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:25:22 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:25:22 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:25:22 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:25:23 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:25:23 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:25:25 | ERROR | app.main:cleanup_old_logs - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-17 23:25:25 | WARNING | app.main:cleanup_old_logs - Unable to connect to log database for cleanup
+2026-03-17 23:27:23 | INFO | app.logging_config:setup_logging - PostgreSQL logging handler initialized
+2026-03-17 23:27:23 | INFO | app.logging_config:setup_logging - Logging system initialized
+2026-03-17 23:27:26 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:27:26 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:27:26 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:27:26 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:27:27 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:27:27 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:27:27 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:27:27 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:27:27 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:27:27 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:27:28 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:27:28 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:27:28 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:27:28 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:27:28 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:27:28 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:27:29 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:27:29 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:27:29 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:27:29 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:27:29 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:27:29 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:27:30 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:27:30 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:27:30 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:27:30 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:27:30 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:27:30 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:27:31 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:27:31 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:27:51 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:27:51 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:27:51 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:27:51 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:27:52 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:27:52 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:27:54 | ERROR | app.main:cleanup_old_logs - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-17 23:27:54 | WARNING | app.main:cleanup_old_logs - Unable to connect to log database for cleanup
+2026-03-17 23:29:31 | INFO | app.logging_config:setup_logging - PostgreSQL logging handler initialized
+2026-03-17 23:29:31 | INFO | app.logging_config:setup_logging - Logging system initialized
+2026-03-17 23:29:40 | INFO | app.logging_config:setup_logging - PostgreSQL logging handler initialized
+2026-03-17 23:29:40 | INFO | app.logging_config:setup_logging - Logging system initialized
+2026-03-17 23:31:52 | INFO | app.logging_config:setup_logging - PostgreSQL logging handler initialized
+2026-03-17 23:31:52 | INFO | app.logging_config:setup_logging - Logging system initialized
+2026-03-17 23:31:52 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:31:52 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:31:52 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:31:52 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:31:53 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:31:53 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:31:53 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:31:53 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:31:53 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:31:53 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:31:54 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:31:54 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:31:54 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:31:54 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:31:54 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:31:54 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:31:55 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:31:55 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:31:55 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:31:55 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:31:55 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:31:55 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:31:56 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:31:56 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:31:56 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:31:56 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:31:56 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:31:56 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:31:57 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:31:57 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:32:17 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:32:17 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:32:17 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:32:17 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:32:18 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:32:18 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:32:18 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:32:18 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:32:18 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:32:18 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:32:19 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:32:19 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:32:19 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:32:19 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:32:19 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:32:19 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:32:20 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:32:20 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:32:20 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:32:20 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:32:20 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:32:20 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:32:21 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:32:21 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:32:21 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:32:21 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:32:21 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:32:21 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:32:22 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:32:22 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:32:22 | INFO | app.main:on_startup - Starting GoldPrice application
+2026-03-17 23:32:22 | INFO | app.main:on_startup - System metrics collection started
+2026-03-17 23:32:22 | INFO | app.main:on_startup - Alert evaluation started
+2026-03-17 23:32:22 | INFO | app.main:on_startup - Application started successfully
+2026-03-17 23:32:23 | INFO | app.main:on_shutdown - Shutting down application
+2026-03-17 23:32:23 | INFO | app.main:on_shutdown - Application shutdown complete
+2026-03-17 23:32:23 | ERROR | app.main:cleanup_old_logs - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-17 23:32:23 | WARNING | app.main:cleanup_old_logs - Unable to connect to log database for cleanup
+2026-03-17 23:35:31 | INFO | app.logging_config:setup_logging - PostgreSQL logging handler initialized
+2026-03-17 23:35:31 | INFO | app.logging_config:setup_logging - Logging system initialized

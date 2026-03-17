@@ -7,15 +7,27 @@ import os
 
 # 创建全局数据库引擎（带连接池）
 os.makedirs(os.path.dirname(settings.database_path), exist_ok=True)
-engine = create_engine(
-    f"sqlite:///{settings.database_path}",
-    connect_args={"check_same_thread": False},
-    echo=settings.debug,
-    pool_size=settings.database_pool_size,
-    max_overflow=settings.database_max_overflow,
-    pool_timeout=settings.database_pool_timeout,
-    pool_recycle=settings.database_pool_recycle,
-)
+
+# SQLite doesn't support connection pooling the same way as other databases
+# Use NullPool for SQLite to avoid threading issues
+if settings.database_pool_size == 0:
+    # Disable pooling for tests
+    from sqlalchemy.pool import NullPool
+    engine = create_engine(
+        f"sqlite:///{settings.database_path}",
+        connect_args={"check_same_thread": False},
+        echo=settings.debug,
+        poolclass=NullPool,
+    )
+else:
+    # Use StaticPool for SQLite in production (single connection reused)
+    from sqlalchemy.pool import StaticPool
+    engine = create_engine(
+        f"sqlite:///{settings.database_path}",
+        connect_args={"check_same_thread": False},
+        echo=settings.debug,
+        poolclass=StaticPool,
+    )
 
 # 创建会话工厂
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
