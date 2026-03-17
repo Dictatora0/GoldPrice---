@@ -9,6 +9,7 @@ import os
 os.makedirs(os.path.dirname(settings.database_path), exist_ok=True)
 engine = create_engine(
     f"sqlite:///{settings.database_path}",
+    connect_args={"check_same_thread": False},
     echo=settings.debug,
     pool_size=settings.database_pool_size,
     max_overflow=settings.database_max_overflow,
