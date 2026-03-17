@@ -59,6 +59,18 @@ def setup_logging():
             enqueue=True
         )
 
+    # 添加PostgreSQL日志处理器
+    if settings.log_to_postgres:
+        try:
+            from app.log_models import PostgreSQLLogHandler, init_log_db
+            init_log_db()
+            postgres_handler = PostgreSQLLogHandler()
+            postgres_handler.setLevel(logging.INFO)
+            logging.root.addHandler(postgres_handler)
+            logger.info("PostgreSQL logging handler initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize PostgreSQL logging: {e}")
+
     # 配置structlog
     structlog.configure(
         processors=[

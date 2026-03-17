@@ -1,0 +1,13 @@
+2026-03-17 23:11:41 | ERROR | app.main:cleanup_old_logs:55 - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-17 23:11:41 | ERROR | app.main:cleanup_old_logs:55 - Log cleanup error: '<' not supported between instances of 'MagicMock' and 'datetime.datetime'
+2026-03-17 23:11:58 | ERROR | app.main:cleanup_old_logs:55 - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-17 23:12:37 | ERROR | app.main:cleanup_old_logs:55 - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-17 23:13:18 | ERROR | app.main:cleanup_old_logs:55 - Log cleanup error: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "goldprice" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)

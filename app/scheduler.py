@@ -213,6 +213,21 @@ def start_scheduler(app=None):
         except Exception as exc:
             logger.error("Invalid backup time config: %s", exc)
 
+    # Add log cleanup job (daily at 3 AM)
+    if settings.log_to_postgres:
+        try:
+            from app.main import cleanup_old_logs
+            scheduler.add_job(
+                cleanup_old_logs,
+                CronTrigger(hour=3, minute=0),
+                id="log_cleanup_job",
+                max_instances=1,
+                coalesce=True,
+            )
+            logger.info("Log cleanup job scheduled for 3:00 AM daily")
+        except Exception as exc:
+            logger.error("Failed to schedule log cleanup job: %s", exc)
+
     scheduler.start()
     state.scheduler = scheduler
     logger.info("Scheduler started")

@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from datetime import datetime, timedelta
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.api import router as api_router
 from app.api.websocket import manager as ws_manager
@@ -26,6 +28,31 @@ async def collect_system_metrics():
         except Exception as e:
             logger.error(f"System metrics collection error: {e}")
             await asyncio.sleep(30)
+
+
+def cleanup_old_logs():
+    """Background task to cleanup old logs from PostgreSQL."""
+    if not settings.log_to_postgres:
+        return
+
+    try:
+        from app.log_models import LogEntry, get_log_session
+        session = get_log_session()
+        if not session:
+            logger.warning("Unable to connect to log database for cleanup")
+            return
+
+        cutoff_date = datetime.now() - timedelta(days=settings.log_retention_days)
+        deleted = session.query(LogEntry).filter(
+            LogEntry.timestamp < cutoff_date
+        ).delete()
+        session.commit()
+        session.close()
+
+        if deleted > 0:
+            logger.info(f"Cleaned up {deleted} old log entries older than {settings.log_retention_days} days")
+    except Exception as e:
+        logger.error(f"Log cleanup error: {e}")
 
 
 def create_app() -> FastAPI:
