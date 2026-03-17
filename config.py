@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     cache_indicators_ttl: int = 120
     cache_history_ttl: int = 300
     cache_candlestick_ttl: int = 300
+    cache_signals_ttl: int = 120
+    cache_analysis_ttl: int = 180
 
     # 数据库连接池配置
     database_pool_size: int = 10
