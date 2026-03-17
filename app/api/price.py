@@ -5,7 +5,7 @@ from typing import Optional, List, Dict
 import pandas as pd
 from fastapi import APIRouter, Query, HTTPException
 
-from app.database import get_session
+from app.database import get_db_session
 from app.models import PriceHistory
 
 router = APIRouter(prefix="/api/price", tags=["price"])
@@ -40,8 +40,7 @@ def downsample_history(items: List[Dict], interval: Optional[str]) -> List[Dict]
 
 @router.get("/current")
 def get_current_price():
-    session = get_session()
-    try:
+    with get_db_session() as session:
         latest = (
             session.query(PriceHistory)
             .order_by(PriceHistory.timestamp.desc())
@@ -54,8 +53,6 @@ def get_current_price():
             "price_cny_per_gram": latest.price_cny_per_gram,
             "source_count": latest.source_count,
         }
-    finally:
-        session.close()
 
 
 @router.get("/history")
@@ -67,8 +64,7 @@ def get_price_history(
     if interval and interval_str is None:
         raise HTTPException(status_code=400, detail="Invalid interval")
 
-    session = get_session()
-    try:
+    with get_db_session() as session:
         start_time = datetime.now() - timedelta(days=days)
         records = (
             session.query(PriceHistory)
@@ -94,8 +90,6 @@ def get_price_history(
                 for item in items
             ]
         return {"items": output}
-    finally:
-        session.close()
 
 
 @router.get("/candlestick")
@@ -111,8 +105,7 @@ def get_candlestick_data(
 
     interval_str = valid_intervals[interval]
 
-    session = get_session()
-    try:
+    with get_db_session() as session:
         start_time = datetime.now() - timedelta(days=days)
         records = (
             session.query(PriceHistory)
@@ -166,5 +159,3 @@ def get_candlestick_data(
             })
 
         return {"items": candlesticks}
-    finally:
-        session.close()

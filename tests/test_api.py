@@ -4,7 +4,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import init_db, get_session
+from app.database import init_db, get_db_session, engine
 from app.models import PriceHistory, AnalysisSignal
 from config import settings
 from app.main import app
@@ -15,14 +15,17 @@ def client():
     # Reset test database
     if os.path.exists(settings.database_path):
         os.remove(settings.database_path)
+    # Dispose of all connections before reinitializing
+    engine.dispose()
     init_db()
     with TestClient(app) as test_client:
         yield test_client
+    # Clean up after test
+    engine.dispose()
 
 
 def seed_price_history(points):
-    session = get_session()
-    try:
+    with get_db_session() as session:
         for ts, price in points:
             session.add(
                 PriceHistory(
@@ -31,14 +34,10 @@ def seed_price_history(points):
                     source_count=2,
                 )
             )
-        session.commit()
-    finally:
-        session.close()
 
 
 def seed_signal(ts, price):
-    session = get_session()
-    try:
+    with get_db_session() as session:
         session.add(
             AnalysisSignal(
                 timestamp=ts,
@@ -48,9 +47,6 @@ def seed_signal(ts, price):
                 notified=True,
             )
         )
-        session.commit()
-    finally:
-        session.close()
 
 
 def test_health_endpoint_returns_ok(client):

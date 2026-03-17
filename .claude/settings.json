@@ -18,7 +18,9 @@
       "Bash(curl -s http://localhost:8000/healthcheck)",
       "Bash(curl -s http://localhost:8000/metrics)",
       "Bash(python run.py)",
-      "Bash(pip uninstall:*)"
+      "Bash(pip uninstall:*)",
+      "Bash(curl -s http://localhost:8000/api/analysis/signals)",
+      "Bash(python -c \"from app.database import get_session; from app.models import AnalysisSignal; db = get_session\\(\\); signals = db.query\\(AnalysisSignal\\).all\\(\\); print\\(f''Total signals: {len\\(signals\\)}''\\); [print\\(f''{s.timestamp} - {s.signal_type} - ¥{s.price_cny_per_gram} - notified:{s.notified}''\\) for s in signals[-5:]]; db.close\\(\\)\")"
     ]
   }
 }
