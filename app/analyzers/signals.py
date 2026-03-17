@@ -408,3 +408,36 @@ class SignalDetector:
             if latest_signal:
                 latest_signal.notified = True
                 session.commit()
+
+    def evaluate_buy_signal_cached(self) -> Optional[dict]:
+        """评估买入信号(带缓存)"""
+        from app.cache import cache_manager
+        from config import settings
+        from app.database import get_db_session
+        from app.models import PriceSource
+
+        with get_db_session() as session:
+            latest = session.query(PriceSource).order_by(
+                PriceSource.timestamp.desc()
+            ).first()
+
+            if not latest:
+                indicators = self.calculator.calculate_all()
+                if not indicators:
+                    return None
+                return self._evaluate_buy_signal_enhanced(indicators)
+
+            cache_key = f"signals:{latest.timestamp.isoformat()}"
+
+        cached = cache_manager.get(cache_key)
+        if cached:
+            return cached
+
+        indicators = self.calculator.calculate_all()
+        if not indicators:
+            return None
+
+        result = self._evaluate_buy_signal_enhanced(indicators)
+        cache_manager.set(cache_key, result, ttl=settings.cache_signals_ttl)
+
+        return result

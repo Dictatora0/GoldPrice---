@@ -383,3 +383,29 @@ class MarketAdvisor:
             "disclaimer": "本建议仅供参考,不构成投资建议,投资有风险",
             "key_indicators": key_indicators
         }
+
+    def analyze_cached(self) -> Optional[Dict]:
+        """综合分析并生成建议(带缓存)"""
+        from app.cache import cache_manager
+        from config import settings
+        from app.database import get_db_session
+        from app.models import PriceSource
+
+        with get_db_session() as session:
+            latest = session.query(PriceSource).order_by(
+                PriceSource.timestamp.desc()
+            ).first()
+
+            if not latest:
+                return self.analyze()
+
+            cache_key = f"analysis:{latest.timestamp.isoformat()}"
+
+        cached = cache_manager.get(cache_key)
+        if cached:
+            return cached
+
+        result = self.analyze()
+        cache_manager.set(cache_key, result, ttl=settings.cache_analysis_ttl)
+
+        return result

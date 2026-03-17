@@ -148,3 +148,29 @@ class IndicatorCalculator:
 
         return indicators
 
+    def calculate_all_cached(self) -> Dict:
+        """计算所有技术指标(带缓存)"""
+        from app.cache import cache_manager
+        from config import settings
+        from app.database import get_db_session
+        from app.models import PriceSource
+
+        with get_db_session() as session:
+            latest = session.query(PriceSource).order_by(
+                PriceSource.timestamp.desc()
+            ).first()
+
+            if not latest:
+                return self.calculate_all()
+
+            cache_key = f"indicators:{latest.timestamp.isoformat()}"
+
+        cached = cache_manager.get(cache_key)
+        if cached:
+            return cached
+
+        result = self.calculate_all()
+        cache_manager.set(cache_key, result, ttl=settings.cache_indicators_ttl)
+
+        return result
+
