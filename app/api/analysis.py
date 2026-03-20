@@ -1,15 +1,14 @@
-import json
 from datetime import datetime, timedelta
-from typing import Optional
 
 from fastapi import APIRouter, Query, HTTPException
 
 from app.analyzers.indicators import IndicatorCalculator
 from app.analyzers.advisor import MarketAdvisor
 from app.analyzers.signals import SignalDetector
-from app.database import get_session
+from app.database import get_db_session
 from app.models import AnalysisSignal
 from app.cache import cache_manager
+from app.signal_validation import decode_signal_indicators, is_complete_signal_payload
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -27,35 +26,35 @@ def get_indicators():
 
 @router.get("/signals")
 def get_signals(days: int = Query(7, ge=1, le=3650)):
-    session = get_session()
-    try:
+    with get_db_session(read_only=True) as session:
         start_time = datetime.now() - timedelta(days=days)
         records = (
-            session.query(AnalysisSignal)
+            session.query(
+                AnalysisSignal.timestamp,
+                AnalysisSignal.signal_type,
+                AnalysisSignal.price_cny_per_gram,
+                AnalysisSignal.indicators,
+                AnalysisSignal.notified,
+            )
             .filter(AnalysisSignal.timestamp >= start_time)
             .order_by(AnalysisSignal.timestamp.desc())
             .all()
         )
         items = []
-        for r in records:
-            indicators = {}
-            if r.indicators:
-                try:
-                    indicators = json.loads(r.indicators)
-                except json.JSONDecodeError:
-                    indicators = {}
+        for timestamp, signal_type, price_cny_per_gram, indicators_raw, notified in records:
+            indicators = decode_signal_indicators(indicators_raw)
+            if not is_complete_signal_payload(price_cny_per_gram, indicators):
+                continue
             items.append(
                 {
-                    "timestamp": r.timestamp.isoformat(),
-                    "signal_type": r.signal_type,
-                    "price_cny_per_gram": r.price_cny_per_gram,
+                    "timestamp": timestamp.isoformat(),
+                    "signal_type": signal_type,
+                    "price_cny_per_gram": price_cny_per_gram,
                     "indicators": indicators,
-                    "notified": r.notified,
+                    "notified": notified,
                 }
             )
         return {"items": items}
-    finally:
-        session.close()
 
 
 @router.get("/advice")

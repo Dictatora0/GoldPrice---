@@ -1,6 +1,7 @@
 from app.collectors.sina import SinaCollector
 from app.collectors.eastmoney import EastMoneyCollector
 from app.collectors.gold_cn import GoldCNCollector
+from app.collectors.global_gold import GlobalGoldCollector
 
 
 def test_sina_parse_price():
@@ -35,3 +36,21 @@ def test_sge_extract_price():
     """
 
     assert GoldCNCollector.extract_price(html, symbol="Au99.99") == 1118.90
+
+
+def test_global_gold_extract_usd_gold_price():
+    text = 'v_hf_GC="4576.23,-0.64,4579.00,4579.30,4738.20,4542.10,01:16:08,4605.70,4653.90,0,1,1,2026-03-21,纽约金";'
+
+    assert GlobalGoldCollector.extract_usd_gold_price(text) == 4576.23
+
+
+def test_global_gold_extract_usdcny_rate():
+    text = 'var hq_str_fx_susdcny="01:09:02,6.9020000000,6.9043000000,6.9013000000,231.0000000000,6.8850000000,6.9043000000,6.8812000000,6.9034000000,美元人民币,0.0304,0.0021,0.0231,数据,0.0000,0.0000,,2026-03-21";'
+
+    assert GlobalGoldCollector.extract_usdcny_rate(text) == 6.902
+
+
+def test_global_gold_converts_to_cny_per_gram():
+    price = GlobalGoldCollector.convert_to_cny_per_gram(4576.23, 6.902)
+
+    assert round(price, 2) == 1015.49

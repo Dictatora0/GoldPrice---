@@ -9,10 +9,16 @@ class PriceWebSocket {
     this.maxRetries = 10;
     this.retryCount = 0;
     this.handlers = {};
+    this.isManualClose = false;
+    this.heartbeatInterval = null;
     this.connect();
   }
 
   connect() {
+    if (this.isManualClose) {
+      return;
+    }
+
     if (this.retryCount >= this.maxRetries) {
       console.error('达到最大重连次数');
       this.updateStatus('连接失败');
@@ -28,6 +34,7 @@ class PriceWebSocket {
         this.updateStatus('在线');
 
         // 发送心跳
+        this.stopHeartbeat();
         this.startHeartbeat();
       };
 
@@ -42,6 +49,11 @@ class PriceWebSocket {
 
       this.ws.onclose = () => {
         console.log('WebSocket disconnected');
+        if (this.isManualClose) {
+          this.updateStatus('离线');
+          this.stopHeartbeat();
+          return;
+        }
         this.updateStatus('离线');
         this.stopHeartbeat();
         this.retryCount++;
@@ -143,7 +155,14 @@ class PriceWebSocket {
     const statusElement = document.getElementById('status-pill');
     if (statusElement) {
       statusElement.textContent = status;
-      statusElement.className = 'status-pill ' + (status === '在线' ? 'online' : 'offline');
+      statusElement.className = 'status-pill';
+      if (status === '在线') {
+        statusElement.classList.add('online');
+      } else if (status === '连接中') {
+        statusElement.classList.add('status-pending');
+      } else {
+        statusElement.classList.add('offline');
+      }
     }
   }
 
@@ -152,6 +171,7 @@ class PriceWebSocket {
   }
 
   close() {
+    this.isManualClose = true;
     this.maxRetries = 0; // 阻止自动重连
     this.stopHeartbeat();
     if (this.ws) {

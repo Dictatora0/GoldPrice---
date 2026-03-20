@@ -1,13 +1,16 @@
+import json
 import pandas as pd
-import numpy as np
-from typing import List, Dict
+from typing import Dict
 from app.database import get_db_session
 from app.models import PriceHistory
+from app.price_regime import filter_current_regime
 from config import settings
 
 
 class IndicatorCalculator:
     """技术指标计算器"""
+
+    CACHE_SCHEMA_VERSION = "v2"
 
     def __init__(self):
         self.rsi_period = settings.rsi_period
@@ -22,20 +25,28 @@ class IndicatorCalculator:
 
     def get_price_data(self, days: int = 90) -> pd.DataFrame:
         """获取历史价格数据"""
-        with get_db_session() as session:
-            records = session.query(PriceHistory).order_by(
+        with get_db_session(read_only=True) as session:
+            records = session.query(
+                PriceHistory.timestamp,
+                PriceHistory.price_cny_per_gram,
+            ).order_by(
                 PriceHistory.timestamp.desc()
             ).limit(days * 480).all()  # 每天480条记录(3分钟一次)
 
             if not records:
                 return pd.DataFrame()
 
+            filtered_records = filter_current_regime(
+                list(reversed(records)),
+                price_getter=lambda row: row[1],
+            )
+
             df = pd.DataFrame([
                 {
-                    "timestamp": r.timestamp,
-                    "price": r.price_cny_per_gram
+                    "timestamp": timestamp,
+                    "price": price,
                 }
-                for r in reversed(records)
+                for timestamp, price in filtered_records
             ])
 
             df['timestamp'] = pd.to_datetime(df['timestamp'])
@@ -121,6 +132,8 @@ class IndicatorCalculator:
 
     def calculate_all(self) -> Dict:
         """计算所有技术指标"""
+        import math
+
         df = self.get_price_data()
 
         if df.empty:
@@ -146,31 +159,45 @@ class IndicatorCalculator:
         macd_indicators = self.calculate_macd(df)
         indicators.update(macd_indicators)
 
+        # 过滤掉 NaN 和 Inf 值，替换为 None
+        for key, value in indicators.items():
+            if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+                indicators[key] = None
+
         return indicators
 
     def calculate_all_cached(self) -> Dict:
         """计算所有技术指标(带缓存)"""
         from app.cache import cache_manager
         from config import settings
-        from app.database import get_db_session
-        from app.models import PriceSource
 
-        with get_db_session() as session:
-            latest = session.query(PriceSource).order_by(
-                PriceSource.timestamp.desc()
+        with get_db_session(read_only=True) as session:
+            latest = session.query(PriceHistory.timestamp).order_by(
+                PriceHistory.timestamp.desc()
             ).first()
 
             if not latest:
                 return self.calculate_all()
 
-            cache_key = f"indicators:{latest.timestamp.isoformat()}"
+            cache_key = f"indicators:{self.CACHE_SCHEMA_VERSION}:{latest[0].isoformat()}"
 
         cached = cache_manager.get(cache_key)
         if cached:
+            if isinstance(cached, str):
+                try:
+                    return json.loads(cached)
+                except json.JSONDecodeError:
+                    pass
             return cached
 
         result = self.calculate_all()
-        cache_manager.set(cache_key, result, ttl=settings.cache_indicators_ttl)
+        if result is None:
+            return None
+
+        cache_manager.set(
+            cache_key,
+            json.dumps(result, default=str),
+            ttl=settings.cache_indicators_ttl,
+        )
 
         return result
-

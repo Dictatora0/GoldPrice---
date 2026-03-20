@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python tooling cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+.venv*/
+venv/
+env/
+
+# Runtime logs and pid files
+logs/*.log
+logs/*.out
+logs/*.pid
+logs/*.json
+!logs/.gitkeep
+
+# Runtime databases and backups
+data/*.db
+data/backups/
+
+# Misc temporary artifacts
+tmp/
+*.tmp

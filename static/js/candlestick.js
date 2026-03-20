@@ -3,122 +3,316 @@
  * 使用 Lightweight Charts 库实现专业的K线图展示
  */
 
+const CANDLESTICK_REQUEST_TIMEOUT_MS = 10000;
+const LIGHTWEIGHT_CHARTS_SOURCES = [
+  "https://cdn.jsdelivr.net/npm/lightweight-charts@5.0.9/dist/lightweight-charts.standalone.production.js",
+  "https://unpkg.com/lightweight-charts@5.0.9/dist/lightweight-charts.standalone.production.js",
+];
+
 let candlestickChart = null;
 let candlestickSeries = null;
 let activitySeries = null;
-let currentChartType = 'line'; // 'line' or 'candlestick'
-let currentInterval = '1h';
+let currentChartType = "line"; // "line" or "candlestick"
+let currentInterval = "1h";
+let pendingCandlestickController = null;
+let resizeBound = false;
+let lightweightChartsLoadPromise = null;
+
+function getCandlestickContainer() {
+  return document.getElementById("candlestick-container");
+}
+
+function renderCandlestickPlaceholder(message) {
+  const container = getCandlestickContainer();
+  if (!container || candlestickChart) return;
+
+  container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:24px;color:#9bb1cc;font-size:14px;">${message}</div>`;
+}
+
+function clearCandlestickPlaceholder() {
+  const container = getCandlestickContainer();
+  if (!container || candlestickChart) return;
+  container.innerHTML = "";
+}
+
+function injectScript(url) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = url;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(`Failed to load script: ${url}`));
+    document.head.appendChild(script);
+  });
+}
+
+async function loadScriptSequentially(urls) {
+  let lastError = null;
+
+  for (const url of urls) {
+    try {
+      await injectScript(url);
+      if (typeof LightweightCharts !== "undefined") {
+        return LightweightCharts;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Failed to load Lightweight Charts");
+}
+
+async function ensureLightweightChartsLoaded() {
+  if (typeof LightweightCharts !== "undefined") {
+    return LightweightCharts;
+  }
+
+  if (!lightweightChartsLoadPromise) {
+    lightweightChartsLoadPromise = loadScriptSequentially(LIGHTWEIGHT_CHARTS_SOURCES).catch(
+      (error) => {
+        lightweightChartsLoadPromise = null;
+        throw error;
+      }
+    );
+  }
+
+  return lightweightChartsLoadPromise;
+}
+
+function getCandlestickChartSize(container) {
+  const fallbackWidth = container?.parentElement?.clientWidth || 640;
+  const fallbackHeight = container?.parentElement?.clientHeight || 360;
+
+  return {
+    width: Math.max(container?.clientWidth || fallbackWidth, 1),
+    height: Math.max(container?.clientHeight || fallbackHeight, 240),
+  };
+}
+
+function addChartSeries(chart, legacyMethod, modernSeriesType, options) {
+  if (!chart) return null;
+
+  if (typeof chart[legacyMethod] === "function") {
+    return chart[legacyMethod](options);
+  }
+
+  if (
+    typeof chart.addSeries === "function" &&
+    typeof modernSeriesType !== "undefined"
+  ) {
+    return chart.addSeries(modernSeriesType, options);
+  }
+
+  return null;
+}
+
+function resizeCandlestickChart() {
+  const container = getCandlestickContainer();
+  if (!candlestickChart || !container) return;
+  candlestickChart.applyOptions(getCandlestickChartSize(container));
+}
+
+function toChartTime(timestamp) {
+  return Math.floor(new Date(timestamp).getTime() / 1000);
+}
 
 /**
  * 初始化K线图
  */
 function initCandlestickChart() {
-  const container = document.getElementById('candlestick-container');
-  if (!container) return;
+  const container = getCandlestickContainer();
+  const chartsApi = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
+  if (!container || !chartsApi) return null;
 
-  // 创建图表
-  candlestickChart = LightweightCharts.createChart(container, {
-    width: container.clientWidth,
-    height: 500,
+  if (candlestickChart) {
+    resizeCandlestickChart();
+    return candlestickChart;
+  }
+
+  clearCandlestickPlaceholder();
+
+  const chartSize = getCandlestickChartSize(container);
+
+  candlestickChart = chartsApi.createChart(container, {
+    width: chartSize.width,
+    height: chartSize.height,
     layout: {
-      background: { color: '#1a1d29' },
-      textColor: '#9aa2b1',
+      background: { color: "#030a13" },
+      textColor: "#9bb1cc",
     },
     grid: {
-      vertLines: { color: 'rgba(255,255,255,0.05)' },
-      horzLines: { color: 'rgba(255,255,255,0.05)' },
+      vertLines: { color: "rgba(84, 128, 172, 0.2)" },
+      horzLines: { color: "rgba(84, 128, 172, 0.2)" },
     },
     crosshair: {
-      mode: LightweightCharts.CrosshairMode.Normal,
+      mode: chartsApi.CrosshairMode.Normal,
     },
     rightPriceScale: {
-      borderColor: 'rgba(255,255,255,0.1)',
+      borderColor: "rgba(126, 172, 221, 0.24)",
     },
     timeScale: {
-      borderColor: 'rgba(255,255,255,0.1)',
+      borderColor: "rgba(126, 172, 221, 0.24)",
       timeVisible: true,
       secondsVisible: false,
     },
   });
 
-  // 创建K线系列
-  candlestickSeries = candlestickChart.addCandlestickSeries({
-    upColor: '#8bd3c7',
-    downColor: '#f08080',
-    borderVisible: false,
-    wickUpColor: '#8bd3c7',
-    wickDownColor: '#f08080',
-  });
-
-  // 创建活跃度柱状图(在下方)
-  activitySeries = candlestickChart.addHistogramSeries({
-    color: '#26a69a',
-    priceFormat: {
-      type: 'volume',
-    },
-    priceScaleId: 'activity',
-    scaleMargins: {
-      top: 0.7,
-      bottom: 0,
-    },
-  });
-
-  // 响应式调整
-  window.addEventListener('resize', () => {
-    if (candlestickChart && container) {
-      candlestickChart.applyOptions({
-        width: container.clientWidth,
-      });
+  candlestickSeries = addChartSeries(
+    candlestickChart,
+    "addCandlestickSeries",
+    LightweightCharts.CandlestickSeries,
+    {
+      upColor: "#2fd6c6",
+      downColor: "#ff8f7f",
+      borderVisible: false,
+      wickUpColor: "#2fd6c6",
+      wickDownColor: "#ff8f7f",
     }
+  );
+
+  activitySeries = addChartSeries(
+    candlestickChart,
+    "addHistogramSeries",
+    LightweightCharts.HistogramSeries,
+    {
+      color: "rgba(47, 214, 198, 0.36)",
+      priceFormat: {
+        type: "volume",
+      },
+      priceScaleId: "activity",
+      scaleMargins: {
+        top: 0.72,
+        bottom: 0,
+      },
+    }
+  );
+
+  if (!candlestickSeries || !activitySeries) {
+    candlestickChart.remove();
+    candlestickChart = null;
+    candlestickSeries = null;
+    activitySeries = null;
+    return null;
+  }
+
+  if (!resizeBound) {
+    resizeBound = true;
+    window.addEventListener("resize", resizeCandlestickChart);
+  }
+
+  window.requestAnimationFrame(() => {
+    resizeCandlestickChart();
+    candlestickChart?.timeScale().fitContent();
   });
 
   return candlestickChart;
 }
 
 /**
+ * 带超时的请求，避免慢请求阻塞切图
+ */
+async function fetchCandlestickJSON(url, signal) {
+  const timeoutController = new AbortController();
+  const timeoutId = window.setTimeout(
+    () => timeoutController.abort(),
+    CANDLESTICK_REQUEST_TIMEOUT_MS
+  );
+
+  if (signal) {
+    if (signal.aborted) {
+      timeoutController.abort();
+    } else {
+      signal.addEventListener("abort", () => timeoutController.abort(), { once: true });
+    }
+  }
+
+  try {
+    const response = await fetch(url, { signal: timeoutController.signal });
+    if (!response.ok) {
+      throw new Error("Failed to fetch candlestick data");
+    }
+    return response.json();
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+/**
  * 加载K线数据
  */
-async function loadCandlestickData(days = 7, interval = '1h') {
+async function loadCandlestickData(days = 7, interval = "1h") {
+  if (pendingCandlestickController) {
+    pendingCandlestickController.abort();
+  }
+  pendingCandlestickController = new AbortController();
+  const { signal } = pendingCandlestickController;
+
   try {
-    const response = await fetch(`/api/price/candlestick?days=${days}&interval=${interval}`);
-    const data = await response.json();
+    const data = await fetchCandlestickJSON(
+      `/api/price/candlestick?days=${days}&interval=${interval}`,
+      signal
+    );
 
     if (!data.items || data.items.length === 0) {
-      console.warn('No candlestick data available');
+      if (candlestickSeries) candlestickSeries.setData([]);
+      if (activitySeries) activitySeries.setData([]);
+      if (typeof window.updateCandlestickChartContext === "function") {
+        window.updateCandlestickChartContext([], interval);
+      }
       return;
     }
 
-    // 转换数据格式
-    const candlestickData = data.items.map(item => ({
-      time: new Date(item.timestamp).getTime() / 1000,
+    const candlestickData = data.items.map((item) => ({
+      time: toChartTime(item.timestamp),
       open: item.open,
       high: item.high,
       low: item.low,
       close: item.close,
     }));
 
-    const activityData = data.items.map(item => ({
-      time: new Date(item.timestamp).getTime() / 1000,
+    const activityData = data.items.map((item) => ({
+      time: toChartTime(item.timestamp),
       value: item.activity,
-      color: item.close >= item.open ? 'rgba(139, 211, 199, 0.5)' : 'rgba(240, 128, 128, 0.5)',
+      color:
+        item.close >= item.open
+          ? "rgba(47, 214, 198, 0.42)"
+          : "rgba(255, 143, 127, 0.45)",
     }));
 
-    // 更新图表
     if (candlestickSeries) {
       candlestickSeries.setData(candlestickData);
     }
-
     if (activitySeries) {
       activitySeries.setData(activityData);
     }
-
-    // 自动调整可见范围
+    if (typeof window.updateCandlestickChartContext === "function") {
+      window.updateCandlestickChartContext(data.items, interval);
+    }
     if (candlestickChart) {
+      resizeCandlestickChart();
       candlestickChart.timeScale().fitContent();
     }
-
   } catch (error) {
-    console.error('Failed to load candlestick data:', error);
+    if (error?.name === "AbortError") return;
+    console.error("Failed to load candlestick data:", error);
+  } finally {
+    if (pendingCandlestickController?.signal === signal) {
+      pendingCandlestickController = null;
+    }
+  }
+}
+
+async function showCandlestickChart(days = 7, interval = currentInterval) {
+  try {
+    await ensureLightweightChartsLoaded();
+    if (!initCandlestickChart()) {
+      throw new Error("Failed to initialize Lightweight Charts");
+    }
+    await loadCandlestickData(days, interval);
+  } catch (error) {
+    renderCandlestickPlaceholder("K线图组件加载失败，请稍后重试");
+    console.error("Failed to load Lightweight Charts:", error);
   }
 }
 
@@ -128,50 +322,42 @@ async function loadCandlestickData(days = 7, interval = '1h') {
 function switchChartType(type) {
   currentChartType = type;
 
-  const lineChartContainer = document.getElementById('priceChart').parentElement;
-  const candlestickContainer = document.getElementById('candlestick-container');
-  const intervalSwitch = document.getElementById('interval-switch');
-  const rangeSwitch = document.getElementById('range-switch');
+  const canvas = document.getElementById("priceChart");
+  const lineChartContainer = canvas ? canvas.parentElement : null;
+  const candlestickContainer = document.getElementById("candlestick-container");
+  if (!canvas || !lineChartContainer || !candlestickContainer) return;
 
-  if (type === 'line') {
-    // 显示折线图,隐藏K线图
-    lineChartContainer.querySelector('canvas').style.display = 'block';
-    if (candlestickContainer) {
-      candlestickContainer.style.display = 'none';
-    }
+  const intervalSwitch = document.getElementById("interval-switch");
+  const rangeSwitch = document.getElementById("range-switch");
+
+  if (type === "line") {
+    canvas.style.display = "block";
+    candlestickContainer.style.display = "none";
     if (intervalSwitch) {
-      intervalSwitch.style.display = 'none';
+      intervalSwitch.style.display = "none";
     }
     if (rangeSwitch) {
-      rangeSwitch.style.display = 'flex';
+      rangeSwitch.style.display = "flex";
     }
-    // 重新加载折线图数据
-    if (window.loadDashboard) {
-      loadDashboard();
+    if (typeof window.loadDashboard === "function") {
+      window.loadDashboard();
     }
-  } else if (type === 'candlestick') {
-    // 隐藏折线图,显示K线图
-    lineChartContainer.querySelector('canvas').style.display = 'none';
-    if (candlestickContainer) {
-      candlestickContainer.style.display = 'block';
-    }
+  } else if (type === "candlestick") {
+    canvas.style.display = "none";
+    candlestickContainer.style.display = "block";
     if (intervalSwitch) {
-      intervalSwitch.style.display = 'flex';
+      intervalSwitch.style.display = "flex";
     }
     if (rangeSwitch) {
-      rangeSwitch.style.display = 'none';
+      rangeSwitch.style.display = "none";
     }
-    // 初始化K线图(如果还没初始化)
-    if (!candlestickChart) {
-      initCandlestickChart();
-    }
-    // 加载K线数据
-    loadCandlestickData(7, currentInterval);
+    window.requestAnimationFrame(() => {
+      showCandlestickChart(7, currentInterval);
+    });
   }
 
-  // 更新按钮状态
-  document.querySelectorAll('.chart-type-switch button').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.type === type);
+  document.querySelectorAll(".chart-type-switch button").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.type === type);
   });
 }
 
@@ -181,19 +367,19 @@ function switchChartType(type) {
 function switchCandlestickInterval(interval) {
   currentInterval = interval;
 
-  // 根据间隔调整天数
   const daysMap = {
-    '1h': 7,
-    '4h': 30,
-    '1d': 90,
+    "1h": 7,
+    "4h": 30,
+    "1d": 90,
   };
 
   const days = daysMap[interval] || 7;
-  loadCandlestickData(days, interval);
+  if (currentChartType === "candlestick") {
+    loadCandlestickData(days, interval);
+  }
 
-  // 更新按钮状态
-  document.querySelectorAll('.interval-switch button').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.interval === interval);
+  document.querySelectorAll(".interval-switch button").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.interval === interval);
   });
 }
 
@@ -201,10 +387,10 @@ function switchCandlestickInterval(interval) {
  * 绑定图表类型切换事件
  */
 function bindChartTypeSwitch() {
-  const container = document.getElementById('chart-type-switch');
+  const container = document.getElementById("chart-type-switch");
   if (!container) return;
 
-  container.addEventListener('click', (event) => {
+  container.addEventListener("click", (event) => {
     if (!(event.target instanceof HTMLButtonElement)) return;
     const type = event.target.dataset.type;
     if (type) {
@@ -217,10 +403,10 @@ function bindChartTypeSwitch() {
  * 绑定K线间隔切换事件
  */
 function bindIntervalSwitch() {
-  const container = document.getElementById('interval-switch');
+  const container = document.getElementById("interval-switch");
   if (!container) return;
 
-  container.addEventListener('click', (event) => {
+  container.addEventListener("click", (event) => {
     if (!(event.target instanceof HTMLButtonElement)) return;
     const interval = event.target.dataset.interval;
     if (interval) {
@@ -229,9 +415,8 @@ function bindIntervalSwitch() {
   });
 }
 
-// 页面加载时初始化
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
     bindChartTypeSwitch();
     bindIntervalSwitch();
   });

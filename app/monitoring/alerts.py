@@ -101,29 +101,31 @@ class AlertManager:
 
         # Rule 2: Price spike (>5% change in 1 hour)
         def check_price_spike() -> bool:
+            session = None
             try:
                 session = get_session()
                 one_hour_ago = datetime.now() - timedelta(hours=1)
 
                 # Get current price
-                current = session.query(PriceHistory)\
+                current = session.query(PriceHistory.price_cny_per_gram)\
                     .order_by(PriceHistory.timestamp.desc())\
                     .first()
 
                 # Get price from 1 hour ago
-                old = session.query(PriceHistory)\
+                old = session.query(PriceHistory.price_cny_per_gram)\
                     .filter(PriceHistory.timestamp <= one_hour_ago)\
                     .order_by(PriceHistory.timestamp.desc())\
                     .first()
 
-                session.close()
-
-                if current and old and old.price > 0:
-                    change_pct = abs((current.price - old.price) / old.price)
+                if current and old and old[0] > 0:
+                    change_pct = abs((current[0] - old[0]) / old[0])
                     return change_pct > 0.05
                 return False
             except Exception:
                 return False
+            finally:
+                if session:
+                    session.close()
 
         self.rules.append(AlertRule(
             name="price_spike",
@@ -138,8 +140,7 @@ class AlertManager:
             if not settings.redis_enabled:
                 return False
             try:
-                import asyncio
-                result = asyncio.run(cache_manager.ping())
+                result = cache_manager.ping()
                 return not result
             except Exception:
                 return True

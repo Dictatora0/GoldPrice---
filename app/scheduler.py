@@ -1,6 +1,6 @@
-import logging
 import os
 import shutil
+import statistics
 from datetime import datetime
 from typing import Optional
 
@@ -12,13 +12,16 @@ except ModuleNotFoundError:  # pragma: no cover - handled at runtime
     CronTrigger = None
 
 from app.collectors import CollectorManager
-from app.database import get_session
+from app.database import get_session, get_db_session
 from app.models import PriceHistory, PriceSource, AnalysisSignal
 from app.analyzers.signals import SignalDetector
 from app.notifiers.macos import MacOSNotifier
+from app.logging_config import get_logger
+from app.price_regime import filter_current_regime
+from app.signal_validation import decode_signal_indicators, is_complete_signal_payload
 from config import settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SchedulerState:
@@ -27,6 +30,38 @@ class SchedulerState:
 
 
 state = SchedulerState()
+
+
+def _get_recent_regime_reference_prices(session) -> list[float]:
+    rows = (
+        session.query(PriceHistory.price_cny_per_gram)
+        .order_by(PriceHistory.timestamp.desc())
+        .limit(settings.price_guard_reference_window)
+        .all()
+    )
+    prices = [price for (price,) in reversed(rows)]
+    if not prices:
+        return []
+    return filter_current_regime(prices, price_getter=lambda price: price)
+
+
+def _is_collection_price_suspicious(session, price_cny_per_gram: float) -> tuple[bool, dict]:
+    reference_prices = _get_recent_regime_reference_prices(session)
+    if len(reference_prices) < settings.price_guard_min_reference_points:
+        return False, {}
+
+    reference_median = statistics.median(reference_prices)
+    if reference_median <= 0:
+        return False, {}
+
+    deviation_ratio = abs(price_cny_per_gram - reference_median) / reference_median
+    suspicious = deviation_ratio > settings.price_guard_relative_deviation_threshold
+
+    return suspicious, {
+        "reference_median": round(reference_median, 2),
+        "deviation_ratio": deviation_ratio,
+        "reference_points": len(reference_prices),
+    }
 
 
 def save_collection(data: dict) -> Optional[int]:
@@ -38,6 +73,20 @@ def save_collection(data: dict) -> Optional[int]:
 
     session = get_session()
     try:
+        suspicious, guard_context = _is_collection_price_suspicious(
+            session,
+            data["price_cny_per_gram"],
+        )
+        if suspicious:
+            logger.warning(
+                "Reject suspicious collection price %.2f (median %.2f, deviation %.2f%%, points %d)",
+                data["price_cny_per_gram"],
+                guard_context["reference_median"],
+                guard_context["deviation_ratio"] * 100,
+                guard_context["reference_points"],
+            )
+            return None
+
         history = PriceHistory(
             timestamp=data["timestamp"],
             price_cny_per_gram=data["price_cny_per_gram"],
@@ -72,30 +121,90 @@ def save_collection(data: dict) -> Optional[int]:
 
 
 def _get_latest_signal_payload() -> Optional[dict]:
-    session = get_session()
-    try:
+    with get_db_session(read_only=True) as session:
         signal = (
-            session.query(AnalysisSignal)
-            .filter(AnalysisSignal.notified == False)
+            session.query(AnalysisSignal.price_cny_per_gram, AnalysisSignal.indicators)
+            .filter(AnalysisSignal.notified.is_(False))
             .order_by(AnalysisSignal.timestamp.desc())
             .first()
         )
         if not signal:
             return None
+        price_cny_per_gram, indicators_raw = signal
         indicators = {}
-        if signal.indicators:
+        if indicators_raw:
             try:
                 import json
 
-                indicators = json.loads(signal.indicators)
+                indicators = json.loads(indicators_raw)
             except json.JSONDecodeError:
                 indicators = {}
         return {
-            "price_cny_per_gram": signal.price_cny_per_gram,
+            "price_cny_per_gram": price_cny_per_gram,
             "indicators": indicators,
         }
-    finally:
-        session.close()
+
+
+def cleanup_backfill_batch(
+    *,
+    created_after: datetime,
+    created_before: datetime,
+    dry_run: bool = False,
+) -> dict:
+    orphan_history_ids = []
+    invalid_signal_ids = []
+
+    with get_db_session(read_only=dry_run) as session:
+        orphan_history_ids = [
+            history_id
+            for (history_id,) in (
+                session.query(PriceHistory.id)
+                .outerjoin(PriceSource, PriceSource.price_history_id == PriceHistory.id)
+                .filter(PriceHistory.created_at >= created_after)
+                .filter(PriceHistory.created_at <= created_before)
+                .filter(PriceSource.id.is_(None))
+                .all()
+            )
+        ]
+
+        for signal_id, price_cny_per_gram, indicators_raw in (
+            session.query(
+                AnalysisSignal.id,
+                AnalysisSignal.price_cny_per_gram,
+                AnalysisSignal.indicators,
+            )
+            .filter(AnalysisSignal.created_at >= created_after)
+            .filter(AnalysisSignal.created_at <= created_before)
+            .all()
+        ):
+            indicators = decode_signal_indicators(indicators_raw)
+            if not is_complete_signal_payload(price_cny_per_gram, indicators):
+                invalid_signal_ids.append(signal_id)
+
+        if not dry_run:
+            if orphan_history_ids:
+                session.query(PriceHistory).filter(
+                    PriceHistory.id.in_(orphan_history_ids)
+                ).delete(synchronize_session=False)
+
+            if invalid_signal_ids:
+                session.query(AnalysisSignal).filter(
+                    AnalysisSignal.id.in_(invalid_signal_ids)
+                ).delete(synchronize_session=False)
+
+    deleted_history = len(orphan_history_ids)
+    deleted_signals = len(invalid_signal_ids)
+    action = "preview" if dry_run else "cleanup"
+    logger.info(
+        "Backfill {} complete: deleted_history={} deleted_signals={}",
+        action,
+        deleted_history,
+        deleted_signals,
+    )
+    return {
+        "deleted_history": deleted_history,
+        "deleted_signals": deleted_signals,
+    }
 
 
 def run_analysis(
@@ -161,7 +270,11 @@ async def collect_job(app=None):
     if not data:
         return
 
-    save_collection(data)
+    history_id = save_collection(data)
+    if history_id is None:
+        logger.warning("Skip analysis and broadcast because collection was rejected by price guard")
+        return
+
     run_analysis(enable_notify=settings.enable_notification)
 
     # 广播价格更新到 WebSocket 客户端
@@ -194,7 +307,7 @@ def start_scheduler(app=None):
     scheduler.add_job(
         partial(collect_job, app),
         "interval",
-        minutes=settings.collection_interval,
+        seconds=settings.collection_interval,
         id="collect_job",
         max_instances=1,
         coalesce=True,

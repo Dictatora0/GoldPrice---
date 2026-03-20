@@ -128,3 +128,35 @@ def test_candlestick_empty_data(client):
 
     assert response.status_code == 200
     assert data["items"] == []
+
+
+def test_candlestick_endpoint_ignores_stale_price_regime(client):
+    session = get_session()
+    try:
+        now = datetime.now().replace(second=0, microsecond=0)
+        older_points = [
+            (now - timedelta(hours=26) + timedelta(minutes=offset * 30), 546.0 + offset * 0.1)
+            for offset in range(4)
+        ]
+        recent_points = [
+            (now - timedelta(hours=2) + timedelta(minutes=offset * 15), 1015.0 + offset * 0.2)
+            for offset in range(8)
+        ]
+        for timestamp, price in older_points + recent_points:
+            session.add(
+                PriceHistory(
+                    timestamp=timestamp,
+                    price_cny_per_gram=price,
+                    source_count=1,
+                )
+            )
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.get("/api/price/candlestick?days=30&interval=1h")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["items"]
+    assert all(item["open"] > 900 for item in data["items"])

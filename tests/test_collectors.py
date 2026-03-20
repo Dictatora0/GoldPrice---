@@ -1,6 +1,7 @@
 import asyncio
 
 from app.collectors import CollectorManager
+from app.collectors.global_gold import GlobalGoldCollector
 
 
 def test_filter_outliers_excludes_large_deviation():
@@ -36,3 +37,9 @@ def test_collect_all_includes_invalid_sources():
 
     assert "invalid_sources" in result
     assert set(result["invalid_sources"].keys()) == {"gold_cn"}
+
+
+def test_collector_manager_registers_global_gold_backup():
+    manager = CollectorManager(timeout=1)
+
+    assert any(isinstance(collector, GlobalGoldCollector) for collector in manager.collectors)

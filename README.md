@@ -145,7 +145,7 @@ docker-compose down
 
 ```bash
 # 数据采集
-COLLECTION_INTERVAL=3        # 采集间隔(分钟)
+COLLECTION_INTERVAL=30       # 采集间隔(秒)
 DATA_SOURCE_TIMEOUT=10       # 数据源超时(秒)
 
 # 技术指标

@@ -60,6 +60,34 @@ def test_calculate_score_overbought_condition():
     assert score <= 100
 
 
+def test_calculate_score_penalizes_falling_knife_context():
+    advisor = MarketAdvisor()
+
+    indicators = {
+        'current_price': 480.0,
+        'rsi': 25,
+        'bb_lower': 485.0,
+        'bb_middle': 490.0,
+        'bb_upper': 495.0,
+        'ma_medium': 490.0,
+        'ma_long': 500.0,
+        'macd': -1.2,
+        'macd_signal': -0.6,
+        'macd_histogram': -0.9,
+        '_momentum_context': {'change_pct': -1.4, 'trend': 'down', 'acceleration': -0.02},
+        '_timeframe_context': {
+            'short_term': 'bearish',
+            'mid_term': 'bearish',
+            'long_term': 'bearish',
+            'alignment': 'bearish_aligned',
+        },
+    }
+
+    score = advisor._calculate_score(indicators)
+
+    assert score >= 60
+
+
 def test_get_recommendation_strong_buy():
     """测试强烈推荐买入"""
     advisor = MarketAdvisor()
@@ -173,6 +201,25 @@ def test_identify_risks_downtrend():
     assert '分批' in risk_text or '波动' in risk_text or '风险' in risk_text
 
 
+def test_identify_risks_calls_out_falling_knife():
+    advisor = MarketAdvisor()
+
+    indicators = {
+        'current_price': 480.0,
+        'rsi': 25,
+        'ma_medium': 490.0,
+        'ma_long': 500.0,
+        'macd': -1.2,
+        'macd_signal': -0.6,
+        'macd_histogram': -0.9,
+        '_risk_flags': ['falling_knife'],
+    }
+
+    risks = advisor._identify_risks(indicators, score=70)
+
+    assert any('飞刀' in risk or '抄底' in risk for risk in risks)
+
+
 def test_format_key_indicators():
     """测试关键指标格式化"""
     advisor = MarketAdvisor()
@@ -260,3 +307,170 @@ def test_analyze_structure_when_data_available():
 
         # 验证免责声明存在
         assert '投资有风险' in result['disclaimer']
+
+
+def test_analyze_uses_signal_risk_context(monkeypatch):
+    advisor = MarketAdvisor()
+
+    monkeypatch.setattr(
+        advisor.calculator,
+        'calculate_all',
+        lambda: {
+            'current_price': 480.0,
+            'rsi': 25,
+            'bb_lower': 485.0,
+            'bb_middle': 490.0,
+            'bb_upper': 495.0,
+            'ma_medium': 490.0,
+            'ma_long': 500.0,
+            'macd': -1.2,
+            'macd_signal': -0.6,
+            'macd_histogram': -0.9,
+            'volatility': 3.5,
+        },
+    )
+    monkeypatch.setattr(
+        advisor,
+        '_build_signal_risk_context',
+        lambda indicators: {
+            **indicators,
+            '_momentum_context': {'change_pct': -1.4, 'trend': 'down', 'acceleration': -0.02},
+            '_timeframe_context': {
+                'short_term': 'bearish',
+                'mid_term': 'bearish',
+                'long_term': 'bearish',
+                'alignment': 'bearish_aligned',
+            },
+            '_risk_flags': ['falling_knife'],
+        },
+    )
+    monkeypatch.setattr(advisor, '_get_price_trend_analysis', lambda: {
+        'recent_change': -1.4,
+        'today_change': -2.0,
+        'momentum': 'strong_down',
+    })
+
+    result = advisor.analyze()
+
+    assert result is not None
+    assert result['score'] >= 60
+    assert result['recommendation'] in {'不推荐', '强烈不推荐'}
+    assert result['risk_flags'] == ['falling_knife']
+    assert result['action_label'] == '避免抄底'
+    assert '等待' in result['action_detail']
+    assert 0 <= result['confidence'] <= 1
+    assert result['dominant_factor']
+    assert result['recommendation_change_reason']
+    assert any('飞刀' in risk or '抄底' in risk for risk in result['risks'])
+
+
+def test_analyze_uses_observe_action_when_setup_lacks_confirmation(monkeypatch):
+    advisor = MarketAdvisor()
+
+    monkeypatch.setattr(
+        advisor.calculator,
+        'calculate_all',
+        lambda: {
+            'current_price': 480.0,
+            'rsi': 22.0,
+            'bb_lower': 482.0,
+            'bb_middle': 490.0,
+            'bb_upper': 496.0,
+            'ma_medium': 498.0,
+            'ma_long': 504.0,
+            'macd': -0.9,
+            'macd_signal': -0.5,
+            'macd_histogram': -0.7,
+            'volatility': 2.5,
+        },
+    )
+    monkeypatch.setattr(
+        advisor,
+        '_build_signal_risk_context',
+        lambda indicators: {
+            **indicators,
+            '_momentum_context': {'change_pct': -0.4, 'trend': 'down', 'acceleration': -0.001},
+            '_timeframe_context': {
+                'short_term': 'bearish',
+                'mid_term': 'neutral',
+                'long_term': 'neutral',
+                'alignment': 'mixed',
+            },
+            '_risk_flags': [],
+        },
+    )
+    monkeypatch.setattr(advisor, '_get_price_trend_analysis', lambda: {
+        'recent_change': -0.4,
+        'today_change': -0.8,
+        'momentum': 'down',
+    })
+
+    result = advisor.analyze()
+
+    assert result is not None
+    assert result['action_label'] == '继续观望'
+    assert '等待' in result['action_detail']
+
+
+def test_analyze_exposes_explainability_timeline(monkeypatch):
+    advisor = MarketAdvisor()
+
+    monkeypatch.setattr(
+        advisor.calculator,
+        'calculate_all',
+        lambda: {
+            'current_price': 480.0,
+            'rsi': 22.0,
+            'bb_lower': 482.0,
+            'bb_middle': 490.0,
+            'bb_upper': 496.0,
+            'ma_medium': 498.0,
+            'ma_long': 504.0,
+            'macd': -0.9,
+            'macd_signal': -0.5,
+            'macd_histogram': -0.7,
+            'volatility': 2.5,
+        },
+    )
+    monkeypatch.setattr(
+        advisor,
+        '_build_signal_risk_context',
+        lambda indicators: {
+            **indicators,
+            '_momentum_context': {'change_pct': -0.4, 'trend': 'down', 'acceleration': -0.001},
+            '_timeframe_context': {
+                'short_term': 'bearish',
+                'mid_term': 'neutral',
+                'long_term': 'neutral',
+                'alignment': 'mixed',
+            },
+            '_risk_flags': [],
+        },
+    )
+    monkeypatch.setattr(advisor, '_get_price_trend_analysis', lambda: {
+        'recent_change': -0.4,
+        'today_change': -0.8,
+        'momentum': 'down',
+    })
+    monkeypatch.setattr(
+        advisor,
+        '_build_explainability_timeline',
+        lambda *args, **kwargs: {
+            'previous_advice': '观望 / 继续观望',
+            'changed_at': '2026-03-20T18:30:00',
+            'factor_changes': [
+                'RSI下降 8.0（30.0 → 22.0）',
+                '评分下降 12 分（55 → 43）',
+            ],
+            'summary': '建议由观望转为推荐买入，主因是 RSI 与评分同步走弱。',
+        },
+        raising=False,
+    )
+
+    result = advisor.analyze()
+
+    assert result is not None
+    assert result['explainability']['previous_advice'] == '观望 / 继续观望'
+    assert result['explainability']['changed_at'] == '2026-03-20T18:30:00'
+    assert result['explainability']['factor_changes'][0].startswith('RSI下降')
+    assert '主因' in result['recommendation_change_reason']

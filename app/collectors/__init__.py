@@ -1,6 +1,7 @@
 from app.collectors.sina import SinaCollector
 from app.collectors.eastmoney import EastMoneyCollector
 from app.collectors.gold_cn import GoldCNCollector
+from app.collectors.global_gold import GlobalGoldCollector
 from typing import List, Dict, Tuple
 from datetime import datetime
 import asyncio
@@ -18,6 +19,7 @@ class CollectorManager:
             SinaCollector(timeout),
             EastMoneyCollector(timeout),
             GoldCNCollector(timeout),
+            GlobalGoldCollector(timeout),
         ]
 
     @staticmethod

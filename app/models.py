@@ -55,3 +55,23 @@ class AnalysisSignal(Base):
     __table_args__ = (
         Index('idx_notified_timestamp', 'notified', 'timestamp'),
     )
+
+
+class AdviceSnapshot(Base):
+    __tablename__ = "advice_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    snapshot_timestamp = Column(DateTime, nullable=False, unique=True, index=True)
+    recommendation = Column(String(30), nullable=False)
+    action_label = Column(String(30), nullable=False)
+    score = Column(Integer, nullable=False)
+    confidence = Column(Float, nullable=True)
+    dominant_factor = Column(String(100), nullable=True)
+    risk_flags = Column(Text, nullable=False, default="[]")
+    key_indicators = Column(Text, nullable=False, default="{}")
+    payload = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        Index('idx_advice_snapshot_timestamp', 'snapshot_timestamp'),
+    )

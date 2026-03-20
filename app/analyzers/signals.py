@@ -1,5 +1,12 @@
 from app.analyzers.indicators import IndicatorCalculator
 from app.database import get_db_session
+from app.market_context import (
+    analyze_multi_timeframe,
+    build_entry_context,
+    check_trend_alignment,
+    get_price_momentum,
+    is_falling_knife,
+)
 from app.models import PriceHistory, AnalysisSignal
 from datetime import datetime, timedelta
 from typing import Optional
@@ -7,7 +14,6 @@ import json
 import logging
 from config import settings
 import numpy as np
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -15,117 +21,20 @@ logger = logging.getLogger(__name__)
 class SignalDetector:
     """买入信号检测器 - 增强版"""
 
+    CACHE_SCHEMA_VERSION = "v2"
+
     def __init__(self):
         self.calculator = IndicatorCalculator()
 
     def _get_price_momentum(self, minutes: int = 30) -> dict:
-        """
-        分析最近N分钟的价格动量
-
-        返回:
-        - change_pct: 价格变化百分比
-        - trend: 趋势方向 (up/down/flat)
-        - acceleration: 加速度(正值表示加速上涨或减速下跌)
-        """
-        with get_db_session() as session:
-            cutoff_time = datetime.now() - timedelta(minutes=minutes)
-            prices = session.query(PriceHistory)\
-                .filter(PriceHistory.timestamp >= cutoff_time)\
-                .order_by(PriceHistory.timestamp.asc())\
-                .all()
-
-            if len(prices) < 3:
-                return {"change_pct": 0, "trend": "flat", "acceleration": 0}
-
-            price_values = [p.price_cny_per_gram for p in prices]
-            first_price = price_values[0]
-            last_price = price_values[-1]
-
-            # 价格变化百分比
-            change_pct = ((last_price - first_price) / first_price) * 100
-
-            # 趋势判断
-            if change_pct > 0.1:
-                trend = "up"
-            elif change_pct < -0.1:
-                trend = "down"
-            else:
-                trend = "flat"
-
-            # 计算加速度(最近一半 vs 前一半的变化率)
-            mid = len(price_values) // 2
-            first_half_change = (price_values[mid] - price_values[0]) / price_values[0]
-            second_half_change = (price_values[-1] - price_values[mid]) / price_values[mid]
-            acceleration = second_half_change - first_half_change
-
-            return {
-                "change_pct": change_pct,
-                "trend": trend,
-                "acceleration": acceleration
-            }
+        return get_price_momentum(minutes)
 
     def _analyze_multi_timeframe(self) -> dict:
-        """
-        多时间周期分析
-
-        返回各时间周期的趋势状态
-        """
-        with get_db_session() as session:
-            now = datetime.now()
-
-            # 短期(1小时)
-            short_term = session.query(PriceHistory)\
-                .filter(PriceHistory.timestamp >= now - timedelta(hours=1))\
-                .order_by(PriceHistory.timestamp.asc())\
-                .all()
-
-            # 中期(6小时)
-            mid_term = session.query(PriceHistory)\
-                .filter(PriceHistory.timestamp >= now - timedelta(hours=6))\
-                .order_by(PriceHistory.timestamp.asc())\
-                .all()
-
-            # 长期(24小时)
-            long_term = session.query(PriceHistory)\
-                .filter(PriceHistory.timestamp >= now - timedelta(hours=24))\
-                .order_by(PriceHistory.timestamp.asc())\
-                .all()
-
-            def get_trend(prices):
-                if len(prices) < 2:
-                    return "unknown"
-                first = prices[0].price_cny_per_gram
-                last = prices[-1].price_cny_per_gram
-                change = ((last - first) / first) * 100
-
-                if change > 0.5:
-                    return "bullish"
-                elif change < -0.5:
-                    return "bearish"
-                else:
-                    return "neutral"
-
-            return {
-                "short_term": get_trend(short_term),
-                "mid_term": get_trend(mid_term),
-                "long_term": get_trend(long_term),
-                "alignment": self._check_trend_alignment(
-                    get_trend(short_term),
-                    get_trend(mid_term),
-                    get_trend(long_term)
-                )
-            }
+        return analyze_multi_timeframe()
 
     def _check_trend_alignment(self, short, mid, long) -> str:
         """检查多周期趋势是否一致"""
-        trends = [short, mid, long]
-
-        if trends.count("bearish") >= 2:
-            return "bearish_aligned"
-        elif trends.count("bullish") >= 2:
-            return "bullish_aligned"
-        else:
-            return "mixed"
+        return check_trend_alignment(short, mid, long)
 
     def _calculate_dynamic_threshold(self, indicators: dict) -> dict:
         """
@@ -134,8 +43,7 @@ class SignalDetector:
         高波动市场: 更严格的条件
         低波动市场: 适当放宽条件
         """
-        volatility = indicators.get("volatility", 0)
-        rsi = indicators.get("rsi", 50)
+        volatility = indicators.get("volatility", 0) or 0
 
         # 基础阈值
         base_rsi_threshold = 30
@@ -158,6 +66,44 @@ class SignalDetector:
             "volatility_level": "high" if volatility > 5 else "low" if volatility < 2 else "normal"
         }
 
+    @staticmethod
+    def _is_falling_knife(indicators: dict, momentum: dict, timeframe: dict) -> bool:
+        return is_falling_knife(indicators, momentum, timeframe)
+
+    def _has_recent_similar_signal(self, price_cny_per_gram: float, score: int) -> bool:
+        if price_cny_per_gram is None:
+            return False
+
+        with get_db_session(read_only=True) as session:
+            cutoff_time = datetime.now() - timedelta(seconds=settings.signal_dedup_window_seconds)
+            recent_signals = (
+                session.query(
+                    AnalysisSignal.price_cny_per_gram,
+                    AnalysisSignal.indicators,
+                )
+                .filter(AnalysisSignal.timestamp >= cutoff_time)
+                .filter(AnalysisSignal.signal_type == "buy")
+                .order_by(AnalysisSignal.timestamp.desc())
+                .all()
+            )
+
+        price_tolerance = max(0.5, price_cny_per_gram * 0.0015)
+        for existing_price, indicators_raw in recent_signals:
+            if abs(existing_price - price_cny_per_gram) > price_tolerance:
+                continue
+
+            existing_score = None
+            if indicators_raw:
+                try:
+                    existing_score = json.loads(indicators_raw).get("evaluation_score")
+                except (json.JSONDecodeError, AttributeError):
+                    existing_score = None
+
+            if existing_score is None or abs(existing_score - score) <= 5:
+                return True
+
+        return False
+
     def _evaluate_buy_signal_enhanced(self, indicators: dict) -> dict:
         """
         增强版买入信号评估
@@ -167,6 +113,9 @@ class SignalDetector:
         score = 0
         max_score = 100
         reasons = []
+        risk_flags = []
+        setup_flags = []
+        confirmation_flags = []
 
         current_price = indicators.get("current_price")
         rsi = indicators.get("rsi")
@@ -208,11 +157,15 @@ class SignalDetector:
         if macd is not None and macd_signal is not None and macd_histogram is not None:
             if macd < macd_signal and macd_histogram < 0:
                 # 死叉但柱状图收窄(下跌动能减弱)
-                if abs(macd_histogram) < 0.5:
+                if abs(macd_histogram) < 0.3:
                     score += 15
                     reasons.append("MACD下跌动能减弱")
+                elif abs(macd_histogram) < 0.8:
+                    score += 8
+                    reasons.append("MACD跌势放缓")
                 else:
-                    score += 5
+                    score -= 5
+                    reasons.append("MACD下跌动能仍强")
             elif macd > macd_signal and macd_histogram > 0:
                 # 金叉(上涨动能)
                 score += 20
@@ -229,7 +182,7 @@ class SignalDetector:
 
             # 均线排列
             if ma_medium < ma_long:
-                score -= 5  # 中期均线低于长期均线,趋势偏弱
+                score -= 8  # 中期均线低于长期均线,趋势偏弱
 
         # 5. 实时动量评分 (15分)
         momentum = self._get_price_momentum(30)
@@ -237,19 +190,45 @@ class SignalDetector:
             score += 15
             reasons.append("下跌趋势但开始减速")
         elif momentum["trend"] == "down":
-            score += 5
-            reasons.append("价格下跌中")
+            if momentum["acceleration"] > -0.005:
+                score += 3
+                reasons.append("价格下跌中,但跌速趋缓")
+            else:
+                score -= 10
+                reasons.append("价格下跌仍在加速")
         elif momentum["trend"] == "up":
             score -= 10  # 上涨中不适合买入
 
         # 6. 多周期趋势确认 (额外加分)
         timeframe = self._analyze_multi_timeframe()
+        entry_context = build_entry_context(indicators, momentum, timeframe)
+        setup_flags = entry_context["setup_flags"]
+        confirmation_flags = entry_context["confirmation_flags"]
+        risk_flags.extend(entry_context["risk_flags"])
+
         if timeframe["alignment"] == "bearish_aligned":
-            score += 10
-            reasons.append("多周期下跌趋势一致")
+            if self._is_falling_knife(indicators, momentum, timeframe):
+                score -= 20
+                reasons.append("多周期下跌共振,暂不抄底")
+            else:
+                score += 3
+                reasons.append("多周期下跌但短线出现钝化")
+        elif timeframe["alignment"] == "bullish_aligned":
+            if current_price and ma_medium and current_price < ma_medium:
+                score += 6
+                reasons.append("大趋势仍偏强,回撤后有修复机会")
+            else:
+                score -= 3
         elif timeframe["short_term"] == "bearish" and timeframe["mid_term"] == "neutral":
             score += 5
             reasons.append("短期下跌,中期震荡")
+
+        if entry_context["entry_ready"]:
+            score += 8
+            reasons.append("反转确认形成")
+        elif len(setup_flags) >= 2:
+            score -= 12
+            reasons.append("超卖条件具备,但反转确认不足")
 
         return {
             "score": min(score, max_score),
@@ -257,7 +236,11 @@ class SignalDetector:
             "reasons": reasons,
             "thresholds": thresholds,
             "momentum": momentum,
-            "timeframe": timeframe
+            "timeframe": timeframe,
+            "risk_flags": risk_flags,
+            "setup_flags": setup_flags,
+            "confirmation_flags": confirmation_flags,
+            "entry_ready": entry_context["entry_ready"],
         }
 
     @staticmethod
@@ -327,6 +310,14 @@ class SignalDetector:
 
         # 评分>=70分触发买入信号
         if score >= 70:
+            if "falling_knife" in evaluation.get("risk_flags", []):
+                logger.info("Falling-knife risk detected, skip signal creation")
+                return False
+
+            if not evaluation.get("entry_ready", False):
+                logger.info("Buy setup present but confirmation is insufficient, skip signal creation")
+                return False
+
             # 额外确认:检查趋势和波动率
             df = self.calculator.get_price_data(days=10)
             if not df.empty:
@@ -337,6 +328,11 @@ class SignalDetector:
                         score -= 10  # 降低评分但不完全否决
 
             if score >= 65:  # 降低后仍然>=65分则触发
+                if self._has_recent_similar_signal(indicators["current_price"], score):
+                    logger.info("Skip duplicate buy signal near ¥%.2f within dedup window", indicators["current_price"])
+                    return False
+
+                evaluation["score"] = score
                 self._save_signal(indicators, evaluation)
                 return True
 
@@ -350,6 +346,10 @@ class SignalDetector:
                 **indicators,
                 "evaluation_score": evaluation["score"],
                 "evaluation_reasons": evaluation["reasons"],
+                "risk_flags": evaluation.get("risk_flags", []),
+                "setup_flags": evaluation.get("setup_flags", []),
+                "confirmation_flags": evaluation.get("confirmation_flags", []),
+                "entry_ready": evaluation.get("entry_ready", False),
                 "momentum": evaluation["momentum"],
                 "timeframe_analysis": evaluation["timeframe"]
             }
@@ -370,9 +370,9 @@ class SignalDetector:
 
     def get_latest_signal(self) -> Optional[dict]:
         """获取最新的买入信号详情"""
-        with get_db_session() as session:
+        with get_db_session(read_only=True) as session:
             signal = session.query(AnalysisSignal)\
-                .filter(AnalysisSignal.notified == False)\
+                .filter(AnalysisSignal.notified.is_(False))\
                 .order_by(AnalysisSignal.timestamp.desc())\
                 .first()
 
@@ -389,9 +389,9 @@ class SignalDetector:
 
     def should_notify(self) -> bool:
         """检查是否应该发送通知(24小时内未通知过)"""
-        with get_db_session() as session:
+        with get_db_session(read_only=True) as session:
             last_notification = session.query(AnalysisSignal).filter(
-                AnalysisSignal.notified == True,
+                AnalysisSignal.notified.is_(True),
                 AnalysisSignal.timestamp
                 > datetime.now() - timedelta(hours=settings.notification_cooldown)
             ).first()
@@ -402,7 +402,7 @@ class SignalDetector:
         """标记最新信号已通知"""
         with get_db_session() as session:
             latest_signal = session.query(AnalysisSignal).filter(
-                AnalysisSignal.notified == False
+                AnalysisSignal.notified.is_(False)
             ).order_by(AnalysisSignal.timestamp.desc()).first()
 
             if latest_signal:
@@ -413,12 +413,10 @@ class SignalDetector:
         """评估买入信号(带缓存)"""
         from app.cache import cache_manager
         from config import settings
-        from app.database import get_db_session
-        from app.models import PriceSource
 
-        with get_db_session() as session:
-            latest = session.query(PriceSource).order_by(
-                PriceSource.timestamp.desc()
+        with get_db_session(read_only=True) as session:
+            latest = session.query(PriceHistory.timestamp).order_by(
+                PriceHistory.timestamp.desc()
             ).first()
 
             if not latest:
@@ -427,10 +425,15 @@ class SignalDetector:
                     return None
                 return self._evaluate_buy_signal_enhanced(indicators)
 
-            cache_key = f"signals:{latest.timestamp.isoformat()}"
+            cache_key = f"signals:{self.CACHE_SCHEMA_VERSION}:{latest[0].isoformat()}"
 
         cached = cache_manager.get(cache_key)
         if cached:
+            if isinstance(cached, str):
+                try:
+                    return json.loads(cached)
+                except json.JSONDecodeError:
+                    pass
             return cached
 
         indicators = self.calculator.calculate_all()
@@ -438,6 +441,10 @@ class SignalDetector:
             return None
 
         result = self._evaluate_buy_signal_enhanced(indicators)
-        cache_manager.set(cache_key, result, ttl=settings.cache_signals_ttl)
+        cache_manager.set(
+            cache_key,
+            json.dumps(result, default=str),
+            ttl=settings.cache_signals_ttl,
+        )
 
         return result

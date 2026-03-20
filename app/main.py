@@ -1,11 +1,10 @@
 import os
 import asyncio
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from datetime import datetime, timedelta
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.api import router as api_router
 from app.api.websocket import manager as ws_manager
@@ -17,6 +16,15 @@ from app.cache import cache_manager
 from config import settings
 
 logger = get_logger(__name__)
+
+
+async def cancel_background_task(task: asyncio.Task, task_name: str):
+    """Cancel and await a background task safely."""
+    if not task or task.done():
+        return
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    logger.info(f"{task_name} stopped")
 
 
 async def collect_system_metrics():
@@ -67,6 +75,31 @@ def cleanup_old_logs():
         logger.error(f"Log cleanup error: {e}")
 
 
+def asset_version(path: str) -> str:
+    try:
+        return str(int(os.path.getmtime(path)))
+    except OSError:
+        return "0"
+
+
+def render_index_html(static_dir: str) -> str:
+    index_path = os.path.join(static_dir, "index.html")
+    with open(index_path, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    replacements = {
+        "/static/css/style.css": f"/static/css/style.css?v={asset_version(os.path.join(static_dir, 'css', 'style.css'))}",
+        "/static/js/websocket.js": f"/static/js/websocket.js?v={asset_version(os.path.join(static_dir, 'js', 'websocket.js'))}",
+        "/static/js/candlestick.js": f"/static/js/candlestick.js?v={asset_version(os.path.join(static_dir, 'js', 'candlestick.js'))}",
+        "/static/js/chart.js": f"/static/js/chart.js?v={asset_version(os.path.join(static_dir, 'js', 'chart.js'))}",
+    }
+
+    for original, versioned in replacements.items():
+        html = html.replace(original, versioned)
+
+    return html
+
+
 def create_app() -> FastAPI:
     # 初始化日志系统
     setup_logging()
@@ -99,7 +132,10 @@ def create_app() -> FastAPI:
 
         @app.get("/")
         def index():
-            return FileResponse(os.path.join(static_dir, "index.html"))
+            return HTMLResponse(
+                content=render_index_html(static_dir),
+                headers={"Cache-Control": "no-store"},
+            )
     else:
         logger.warning("Static directory not found: %s", static_dir)
 
@@ -123,6 +159,8 @@ def create_app() -> FastAPI:
     @app.on_event("shutdown")
     async def on_shutdown():
         logger.info("Shutting down application")
+        await cancel_background_task(getattr(app.state, "alerts_task", None), "Alert evaluation")
+        await cancel_background_task(getattr(app.state, "metrics_task", None), "System metrics")
         shutdown_scheduler()
         cache_manager.close()
         logger.info("Application shutdown complete")

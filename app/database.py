@@ -8,8 +8,6 @@ import os
 # 创建全局数据库引擎（带连接池）
 os.makedirs(os.path.dirname(settings.database_path), exist_ok=True)
 
-# SQLite doesn't support connection pooling the same way as other databases
-# Use NullPool for SQLite to avoid threading issues
 if settings.database_pool_size == 0:
     # Disable pooling for tests
     from sqlalchemy.pool import NullPool
@@ -20,13 +18,16 @@ if settings.database_pool_size == 0:
         poolclass=NullPool,
     )
 else:
-    # Use StaticPool for SQLite in production (single connection reused)
-    from sqlalchemy.pool import StaticPool
+    # Use QueuePool for SQLite in production to support concurrent requests safely.
     engine = create_engine(
         f"sqlite:///{settings.database_path}",
         connect_args={"check_same_thread": False},
         echo=settings.debug,
-        poolclass=StaticPool,
+        pool_size=settings.database_pool_size,
+        max_overflow=settings.database_max_overflow,
+        pool_timeout=settings.database_pool_timeout,
+        pool_recycle=settings.database_pool_recycle,
+        pool_pre_ping=True,
     )
 
 # 创建会话工厂
@@ -39,7 +40,7 @@ def init_db():
 
 
 @contextmanager
-def get_db_session():
+def get_db_session(*, read_only: bool = False):
     """
     获取数据库会话的上下文管理器
     自动处理提交和回滚
@@ -47,7 +48,11 @@ def get_db_session():
     session = SessionLocal()
     try:
         yield session
-        session.commit()
+        if not read_only:
+            session.commit()
+        elif session.in_transaction():
+            # 显式结束只读事务，尽早释放连接和锁
+            session.rollback()
     except Exception:
         session.rollback()
         raise

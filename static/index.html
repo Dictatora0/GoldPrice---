@@ -1,11 +1,17 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="黄金价格监控看板：实时行情、技术指标与买入信号分析"
+    />
     <title>GoldPrice 黄金价格监控</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Manrope:wght@300;400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/css/style.css" />
@@ -15,11 +21,17 @@
     <main class="shell">
       <header class="mast reveal" style="--delay: 0ms">
         <div>
-          <p class="eyebrow">GoldPrice · 智能监控</p>
           <h1>黄金价格监控与买入信号</h1>
-          <p class="subtitle">实时采集、多源校验、技术指标与本机通知</p>
         </div>
-        <div class="status-pill" id="status-pill">连接中</div>
+        <div
+          class="status-pill status-pending"
+          id="status-pill"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          连接中
+        </div>
       </header>
 
       <section class="hero-grid">
@@ -92,9 +104,25 @@
         </div>
         <div class="chart-wrap">
           <canvas id="priceChart"></canvas>
-          <div id="candlestick-container" style="display: none;"></div>
+          <div id="candlestick-container" style="display: none"></div>
         </div>
-        <div class="interval-switch" id="interval-switch" style="display: none; margin-top: 1rem;">
+        <div class="chart-status-summary" id="chart-status-summary">
+          <div class="chart-status-card">
+            <p class="chart-status-label">折线图状态</p>
+            <p id="line-chart-status">等待分析</p>
+            <p class="chart-status-detail" id="line-chart-detail">加载图表状态说明中。</p>
+          </div>
+          <div class="chart-status-card">
+            <p class="chart-status-label">K线图状态</p>
+            <p id="candlestick-chart-status">等待分析</p>
+            <p class="chart-status-detail" id="candlestick-chart-detail">加载图表状态说明中。</p>
+          </div>
+        </div>
+        <div
+          class="interval-switch"
+          id="interval-switch"
+          style="display: none; margin-top: 1rem"
+        >
           <button data-interval="1h" class="active">1小时</button>
           <button data-interval="4h">4小时</button>
           <button data-interval="1d">1天</button>
@@ -102,12 +130,108 @@
       </section>
 
       <section class="lower-grid">
+        <article class="card market-brief reveal" id="market-brief" style="--delay: 400ms">
+          <div class="card-header">
+            <span>当前黄金状况</span>
+            <span class="muted">综合判断</span>
+          </div>
+          <div class="market-brief-top">
+            <p class="market-recommendation" id="market-recommendation">分析中</p>
+            <p class="market-state" id="market-state">等待建议数据</p>
+          </div>
+          <div class="market-meta">
+            <div class="market-meta-chip">
+              <span class="label">评分</span>
+              <span id="market-score">--</span>
+            </div>
+            <div class="market-meta-chip">
+              <span class="label">风险摘要</span>
+              <span id="market-risk-summary">等待分析</span>
+            </div>
+          </div>
+          <div class="market-risk-flags" id="market-risk-flags"></div>
+          <div class="market-action">
+            <p class="market-action-label" id="market-action-label">等待建议</p>
+            <p class="market-action-detail" id="market-action-detail">当前操作建议将在分析完成后显示。</p>
+          </div>
+          <ul class="market-insights" id="market-insights"></ul>
+        </article>
         <article class="card reveal" style="--delay: 440ms">
           <div class="card-header">
             <span>指标速览</span>
             <span class="muted">更新中</span>
           </div>
           <ul class="indicator-list" id="indicator-list"></ul>
+        </article>
+        <article class="card signal-debug reveal" id="signal-debug" style="--delay: 480ms">
+          <div class="card-header">
+            <span>判断调试视图</span>
+            <span class="muted">setup / confirmation / risk</span>
+          </div>
+          <div class="debug-grid">
+            <div class="debug-block">
+              <p class="label">入场状态</p>
+              <p class="debug-entry-status" id="debug-entry-status">等待分析</p>
+            </div>
+            <div class="debug-block debug-meta">
+              <div class="debug-meta-item">
+                <p class="label">置信度</p>
+                <p id="debug-confidence">--</p>
+              </div>
+              <div class="debug-meta-item">
+                <p class="label">主导因子</p>
+                <p id="debug-dominant-factor">等待分析</p>
+              </div>
+            </div>
+            <div class="debug-block">
+              <p class="label">建议变化原因</p>
+              <p class="debug-change-reason" id="debug-change-reason">等待分析</p>
+              <div class="debug-meta explainability-meta">
+                <div class="debug-meta-item">
+                  <p class="label">上一次建议</p>
+                  <p id="debug-previous-advice">等待分析</p>
+                </div>
+                <div class="debug-meta-item">
+                  <p class="label">变化时间</p>
+                  <p id="debug-change-time">等待分析</p>
+                </div>
+              </div>
+              <ul class="debug-factor-changes" id="debug-factor-changes"></ul>
+            </div>
+            <div class="debug-block">
+              <p class="label">触发理由</p>
+              <ul class="debug-reasons" id="debug-reasons"></ul>
+            </div>
+            <div class="debug-block">
+              <p class="label">图表状态</p>
+              <div class="debug-meta explainability-meta">
+                <div class="debug-meta-item">
+                  <p class="label">折线图</p>
+                  <p id="debug-line-chart-state">等待分析</p>
+                </div>
+                <div class="debug-meta-item">
+                  <p class="label">K线图</p>
+                  <p id="debug-candlestick-chart-state">等待分析</p>
+                </div>
+              </div>
+              <div class="debug-chart-detail-grid">
+                <p class="debug-change-reason" id="debug-line-chart-detail">等待折线图数据</p>
+                <p class="debug-change-reason" id="debug-candlestick-chart-detail">切换到 K 线图后更新状态</p>
+              </div>
+            </div>
+            <div class="debug-block">
+              <p class="label">Setup Flags</p>
+              <div class="debug-flag-list" id="debug-setup-flags"></div>
+            </div>
+            <div class="debug-block">
+              <p class="label">Confirmation Flags</p>
+              <div class="debug-flag-list" id="debug-confirmation-flags"></div>
+            </div>
+            <div class="debug-block">
+              <p class="label">Risk Flags</p>
+              <div class="debug-flag-list" id="debug-risk-flags"></div>
+            </div>
+          </div>
         </article>
         <article class="card reveal" style="--delay: 520ms">
           <div class="card-header">
@@ -119,10 +243,13 @@
       </section>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/js/websocket.js"></script>
-    <script src="/static/js/candlestick.js"></script>
-    <script src="/static/js/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1" defer></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.0.9/dist/lightweight-charts.standalone.production.js"
+      defer
+    ></script>
+    <script src="/static/js/websocket.js" defer></script>
+    <script src="/static/js/candlestick.js" defer></script>
+    <script src="/static/js/chart.js" defer></script>
   </body>
 </html>
