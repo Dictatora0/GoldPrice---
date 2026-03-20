@@ -379,44 +379,362 @@ function countMissingBuckets(items, interval) {
   return missingBuckets;
 }
 
+function formatSignedPercent(value, digits = 1) {
+  if (!Number.isFinite(value)) return null;
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(digits)}%`;
+}
+
+function calculatePercentChange(start, end) {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start === 0) return null;
+  return ((end - start) / start) * 100;
+}
+
+function summarizeLineTrend(changePct) {
+  if (!Number.isFinite(changePct)) {
+    return {
+      state: "趋势待定",
+      detail: "样本数量还不够，暂时无法判断价格主线的方向性。",
+    };
+  }
+
+  if (changePct >= 1.8) {
+    return {
+      state: "偏强上行",
+      detail: `最近一段价格抬升 ${formatSignedPercent(changePct)}，说明买盘在主动抬高成交中枢。`,
+    };
+  }
+  if (changePct >= 0.5) {
+    return {
+      state: "温和上行",
+      detail: `最近一段价格上涨 ${formatSignedPercent(changePct)}，高低点都在缓慢上移。`,
+    };
+  }
+  if (changePct <= -1.8) {
+    return {
+      state: "偏弱下行",
+      detail: `最近一段价格回落 ${formatSignedPercent(changePct)}，空头仍在压低短线重心。`,
+    };
+  }
+  if (changePct <= -0.5) {
+    return {
+      state: "回落承压",
+      detail: `最近一段价格回落 ${formatSignedPercent(changePct)}，反弹力度暂时还不足以扭转节奏。`,
+    };
+  }
+
+  return {
+    state: "窄幅整理",
+    detail: `最近一段价格变化仅 ${formatSignedPercent(changePct)}，更像在等待新的方向选择。`,
+  };
+}
+
+function summarizeRangePosition(price, low, high) {
+  if (!Number.isFinite(price) || !Number.isFinite(low) || !Number.isFinite(high) || high <= low) {
+    return {
+      state: "区间待定",
+      detail: "最近区间样本不足，暂时无法判断价格靠近支撑还是阻力。",
+    };
+  }
+
+  const position = (price - low) / (high - low);
+  if (position >= 0.8) {
+    return {
+      state: "区间高位",
+      detail: "最新价已经逼近最近一段区间上沿，接下来要重点观察能否把上方抛压真正吃掉。",
+    };
+  }
+  if (position <= 0.2) {
+    return {
+      state: "区间低位",
+      detail: "最新价贴近最近一段区间下沿，当前位置更像在测试下方承接是否稳固。",
+    };
+  }
+
+  return {
+    state: "区间中部",
+    detail: "最新价仍在最近一段区间中部，多空暂时都没有形成决定性突破。",
+  };
+}
+
+function summarizeMovingAverageRelation(price, ma30) {
+  if (!Number.isFinite(price) || !Number.isFinite(ma30)) {
+    return "MA30 仍在预热，暂时只能先看主线方向，不能用中期均线判断支撑阻力。";
+  }
+
+  const deviationPct = calculatePercentChange(ma30, price);
+  if (!Number.isFinite(deviationPct)) {
+    return "MA30 数据异常，暂时跳过均线位置判断。";
+  }
+
+  if (deviationPct >= 1.5) {
+    return `价格运行在 MA30 上方 ${deviationPct.toFixed(1)}%，说明中期成本区仍在为上涨提供支撑。`;
+  }
+  if (deviationPct >= 0) {
+    return `价格仍站在 MA30 上方 ${deviationPct.toFixed(1)}%，当前走势还没有跌回中期成本线以下。`;
+  }
+  if (deviationPct <= -1.5) {
+    return `价格落在 MA30 下方 ${Math.abs(deviationPct).toFixed(1)}%，反弹还没有收复中期趋势线。`;
+  }
+
+  return "价格正围绕 MA30 反复拉锯，下一次放量离开均线往往会决定短线方向。";
+}
+
+function summarizeBollingerRelation(price, upper, middle, lower) {
+  if (
+    !Number.isFinite(price) ||
+    !Number.isFinite(upper) ||
+    !Number.isFinite(middle) ||
+    !Number.isFinite(lower) ||
+    upper <= lower
+  ) {
+    return "布林带还在预热，暂时不评价价格处于扩张还是回归阶段。";
+  }
+
+  const bandSpan = upper - lower;
+  const position = (price - lower) / bandSpan;
+
+  if (position >= 0.92) {
+    return "价格已经贴近布林上轨，说明上攻很强，但也意味着短线更容易出现高位震荡。";
+  }
+  if (position >= 0.65) {
+    return "价格运行在布林中上轨之间，节奏偏强，但还没到明显过热的位置。";
+  }
+  if (position <= 0.08) {
+    return "价格已经压到布林下轨附近，当前位置更适合观察是止跌承接还是继续破位。";
+  }
+  if (position <= 0.35) {
+    return "价格运行在布林中下轨之间，整体仍偏弱，反弹需要进一步确认。";
+  }
+
+  return "价格大体围绕布林中轨震荡，市场当前更像在消化前一段波动。";
+}
+
 function buildLineChartContext(items, interval) {
   const points = Array.isArray(items) ? items : [];
   if (!points.length) {
     return {
       state: "数据不足",
-      detail: "当前没有足够的折线图数据，无法判断缺口是否来自过滤或采样缺失。",
+      detail: "当前没有足够的折线图数据，暂时无法解读趋势、支撑和阻力关系。",
+    };
+  }
+
+  const prices = points
+    .map((item) => Number(item?.price_cny_per_gram))
+    .filter((value) => Number.isFinite(value));
+  if (prices.length < 2) {
+    return {
+      state: "样本偏少",
+      detail: "折线图样本太少，暂时只能确认有数据，还无法判断趋势结构。",
     };
   }
 
   const missingBuckets = countMissingBuckets(points, interval);
-  const detailParts = [];
+  const recentWindowSize = Math.min(prices.length, 12);
+  const recentWindow = prices.slice(-recentWindowSize);
+  const recentChangePct = calculatePercentChange(recentWindow[0], recentWindow[recentWindow.length - 1]);
+  const trendSummary = summarizeLineTrend(recentChangePct);
+
+  const rangeWindow = prices.slice(-Math.min(prices.length, 20));
+  const recentHigh = Math.max(...rangeWindow);
+  const recentLow = Math.min(...rangeWindow);
+  const latestPrice = prices[prices.length - 1];
+  const rangeSummary = summarizeRangePosition(latestPrice, recentLow, recentHigh);
+
+  const priceSeries = points.map((item) => {
+    const price = Number(item?.price_cny_per_gram);
+    return Number.isFinite(price) ? price : null;
+  });
+  const ma20Series = simpleMovingAverage(priceSeries, 20);
+  const ma30Series = simpleMovingAverage(priceSeries, 30);
+  const bands = bollingerBands(priceSeries, 20, 2);
+
+  const detailParts = [
+    trendSummary.detail,
+    summarizeMovingAverageRelation(latestPrice, ma30Series[ma30Series.length - 1]),
+    rangeSummary.detail,
+    summarizeBollingerRelation(
+      latestPrice,
+      bands.upper[bands.upper.length - 1],
+      ma20Series[ma20Series.length - 1],
+      bands.lower[bands.lower.length - 1]
+    ),
+  ];
 
   if (missingBuckets > 0) {
     detailParts.push(
-      `检测到 ${missingBuckets} 个时间桶缺口，这通常表示异常价段已被过滤，或该时间段没有采样点。`
+      `另外检测到 ${missingBuckets} 个时间桶缺口，这通常表示异常价段已被过滤，或该时段采样不连续。`
     );
   } else {
-    detailParts.push("价格主线连续，当前没有检测到明显的时间桶缺口。");
-  }
-
-  if (points.length < 30) {
-    detailParts.push("MA30 与布林带需要 20 到 30 个样本预热，前段断续属于正常现象。");
-  } else {
-    detailParts.push("若你看到均线或布林带前段短暂断点，通常是指标窗口预热而不是渲染故障。");
+    detailParts.push("时间桶连续，这一段折线更适合直接用来判断趋势斜率和区间位置。");
   }
 
   return {
-    state: missingBuckets > 0 ? "存在缺口（正常）" : "连续",
+    state: `${trendSummary.state} · ${rangeSummary.state}`,
     detail: detailParts.join(" "),
   };
 }
 
-function classifyCandlestickActivity(item) {
+function averageCandlestickActivity(items) {
+  const values = (Array.isArray(items) ? items : [])
+    .map((item) => Number(item?.activity))
+    .filter((value) => Number.isFinite(value));
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function classifyCandlestickActivity(item, items) {
   const activity = Number(item?.activity);
   const dataPoints = Number(item?.data_points);
-  if (activity >= 8 || dataPoints >= 20) return "高";
-  if (activity >= 2 || dataPoints >= 8) return "中";
+  const baseline = averageCandlestickActivity((Array.isArray(items) ? items : []).slice(-6, -1));
+
+  if (
+    activity >= 8 ||
+    dataPoints >= 20 ||
+    (Number.isFinite(baseline) && activity >= baseline * 1.8)
+  ) {
+    return "高";
+  }
+  if (
+    activity >= 2 ||
+    dataPoints >= 8 ||
+    (Number.isFinite(baseline) && activity >= baseline * 1.1)
+  ) {
+    return "中";
+  }
   return "低";
+}
+
+function describeCandlestickStructure(item) {
+  const open = Number(item?.open);
+  const high = Number(item?.high);
+  const low = Number(item?.low);
+  const close = Number(item?.close);
+  const range = high - low;
+
+  if (
+    !Number.isFinite(open) ||
+    !Number.isFinite(high) ||
+    !Number.isFinite(low) ||
+    !Number.isFinite(close) ||
+    range <= 0
+  ) {
+    return {
+      state: "结构待定",
+      detail: "这根 K 线的高低点信息不足，暂时不能判断是承接还是抛压占优。",
+    };
+  }
+
+  const body = Math.abs(close - open);
+  const upperWick = high - Math.max(open, close);
+  const lowerWick = Math.min(open, close) - low;
+  const bullish = close > open;
+  const bearish = close < open;
+  const bodyRatio = body / range;
+
+  if (bullish && lowerWick >= body * 0.85 && lowerWick >= upperWick * 1.8) {
+    return {
+      state: "下探回收",
+      detail: "下影明显长于上影，说明价格下探后被快速拉回，低位承接开始增强。",
+    };
+  }
+  if (bearish && upperWick >= body * 0.85 && upperWick >= lowerWick * 1.8) {
+    return {
+      state: "冲高回落",
+      detail: "上影明显长于下影，说明盘中拉高后卖压立即出现，高位承接偏弱。",
+    };
+  }
+  if (bodyRatio >= 0.58) {
+    return {
+      state: bullish ? "阳线推进" : "阴线下压",
+      detail: bullish
+        ? "实体占据了本根 K 线的大部分波幅，说明这轮反弹更像主动推进。"
+        : "实体占据了本根 K 线的大部分波幅，说明抛压仍在主导节奏。",
+    };
+  }
+  if (body <= range * 0.18) {
+    return {
+      state: "震荡十字",
+      detail: "实体很小，说明多空在这一根 K 线上还没有分出明显胜负。",
+    };
+  }
+
+  return {
+    state: bullish ? "温和反弹" : "弱势回落",
+    detail: bullish
+      ? "这根 K 线收阳，但实体不算特别坚决，更像试探性的回补。"
+      : "这根 K 线收阴，但上下影都不短，说明空头虽然占优，仍有反复拉扯。",
+  };
+}
+
+function describeCandlestickSequence(items) {
+  const candles = Array.isArray(items) ? items.slice(-3) : [];
+  if (candles.length < 2) {
+    return "最近可参考的 K 线不多，暂时先以最新一根的形态为主。";
+  }
+
+  const bullishCount = candles.filter((item) => Number(item?.close) > Number(item?.open)).length;
+  const bearishCount = candles.filter((item) => Number(item?.close) < Number(item?.open)).length;
+  const latestClose = Number(candles[candles.length - 1]?.close);
+  const previousClose = Number(candles[candles.length - 2]?.close);
+
+  if (bullishCount >= 2 && latestClose > previousClose) {
+    return "最近 3 根里多头开始占优，短线反弹已经不只是单根 K 线的孤立动作。";
+  }
+  if (bearishCount >= 2 && latestClose < previousClose) {
+    return "最近 3 根里空头仍占优势，即便有反抽，也更像下跌中的修复。";
+  }
+
+  return "最近几根 K 线多空拉锯明显，市场仍在确认下一段是延续还是反转。";
+}
+
+function describeCandlestickBreakout(items) {
+  const candles = Array.isArray(items) ? items : [];
+  if (candles.length < 2) {
+    return "历史 K 线还不够，暂时不判断是否在试图突破前高或跌破前低。";
+  }
+
+  const latest = candles[candles.length - 1];
+  const previous = candles.slice(Math.max(0, candles.length - 6), -1);
+  const previousHigh = Math.max(...previous.map((item) => Number(item?.high)).filter(Number.isFinite));
+  const previousLow = Math.min(...previous.map((item) => Number(item?.low)).filter(Number.isFinite));
+  const latestHigh = Number(latest?.high);
+  const latestLow = Number(latest?.low);
+  const latestClose = Number(latest?.close);
+
+  if (!Number.isFinite(previousHigh) || !Number.isFinite(previousLow)) {
+    return "历史波动区间不足，暂时不判断突破与否。";
+  }
+  if (latestClose > previousHigh) {
+    return "收盘价已经站上前一段 K 线高点，后续只要活跃度不掉，向上突破就更容易成立。";
+  }
+  if (latestHigh > previousHigh && latestClose <= previousHigh) {
+    return "盘中曾经上探前高，但收盘没有稳住，说明上方抛压还没有完全被消化。";
+  }
+  if (latestClose < previousLow) {
+    return "收盘价已经跌破前一段 K 线低点，空头正在把波动区间继续往下推。";
+  }
+  if (latestLow < previousLow && latestClose >= previousLow) {
+    return "盘中跌破前低后被拉回，说明下方开始出现主动承接，而不是单边失守。";
+  }
+
+  return "最新 K 线仍在最近几根的震荡区间内，市场更像在为下一次突破蓄势。";
+}
+
+function describeCandlestickParticipation(item, items, activityLevel) {
+  const activity = Number(item?.activity);
+  const averageActivity = averageCandlestickActivity((Array.isArray(items) ? items : []).slice(-6, -1));
+
+  if (activityLevel === "高") {
+    if (Number.isFinite(averageActivity) && Number.isFinite(activity)) {
+      return `活跃度高，明显高于最近均值，这意味着这根 K 线背后有更强的参与和换手。`;
+    }
+    return "活跃度高，说明这根 K 线的波动和成交参与都更值得重视。";
+  }
+  if (activityLevel === "中") {
+    return "活跃度中等，当前形态有参考价值，但还不足以单独定义趋势。";
+  }
+  return "活跃度偏低，当前 K 线更像试探，后续最好等待更多跟随确认。";
 }
 
 function buildCandlestickChartContext(items, interval) {
@@ -424,29 +742,32 @@ function buildCandlestickChartContext(items, interval) {
   if (!candles.length) {
     return {
       state: "等待K线数据",
-      detail: "切换到 K 线图并成功加载数据后，这里会说明最新 K 线方向和活跃度状态。",
+      detail: "切换到 K 线图并成功加载数据后，这里会解读最新结构、动能和承接/抛压变化。",
     };
   }
 
   const latest = candles[candles.length - 1];
   const missingBuckets = countMissingBuckets(candles, interval);
-  const activityLevel = classifyCandlestickActivity(latest);
-  let direction = "十字";
-  if (latest.close > latest.open) direction = "阳线";
-  if (latest.close < latest.open) direction = "阴线";
+  const activityLevel = classifyCandlestickActivity(latest, candles);
+  const structure = describeCandlestickStructure(latest);
 
   const detailParts = [
-    `最新一根为${direction}，活跃度${activityLevel}，包含 ${latest.data_points} 个采样点。`,
+    `最新一根 K 线呈现${structure.state}，${structure.detail}`,
+    describeCandlestickSequence(candles),
+    describeCandlestickParticipation(latest, candles, activityLevel),
+    describeCandlestickBreakout(candles),
   ];
 
   if (missingBuckets > 0) {
-    detailParts.push(`检测到 ${missingBuckets} 个 K 线时间桶缺口，通常表示该时段无有效数据或异常价段已被过滤。`);
+    detailParts.push(
+      `另外检测到 ${missingBuckets} 个 K 线时间桶缺口，通常表示该时段无有效数据或异常价段已被过滤。`
+    );
   } else {
-    detailParts.push("K线时间桶连续，当前聚合结果完整。");
+    detailParts.push("K 线时间桶连续，这组形态可以直接用来观察承接、抛压和区间突破。");
   }
 
   return {
-    state: `${direction} · 活跃度${activityLevel}`,
+    state: `${structure.state} · 活跃度${activityLevel}`,
     detail: detailParts.join(" "),
   };
 }
@@ -463,11 +784,11 @@ function updateChartDiagnostics() {
 
   const lineContext = state.lineChartContext || {
     state: "等待分析",
-    detail: "折线图状态会在历史数据加载后显示。",
+    detail: "折线图解读会在历史数据加载后显示。",
   };
   const candlestickContext = state.candlestickChartContext || {
     state: "等待分析",
-    detail: "切换到 K 线图后会补充最新状态说明。",
+    detail: "切换到 K 线图后会补充最新形态解读。",
   };
 
   lineStateEl.textContent = lineContext.state;
