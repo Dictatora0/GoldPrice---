@@ -196,6 +196,9 @@ def test_dashboard_has_signal_debug_slots():
     assert 'id="debug-previous-advice"' in html
     assert 'id="debug-change-time"' in html
     assert 'id="debug-factor-changes"' in html
+    assert 'id="debug-regime"' in html
+    assert 'id="debug-expected-return"' in html
+    assert 'id="debug-position-size"' in html
     assert 'id="debug-setup-flags"' in html
     assert 'id="debug-confirmation-flags"' in html
     assert 'id="debug-risk-flags"' in html
@@ -214,6 +217,9 @@ def test_dashboard_chart_script_renders_signal_debug_view():
     assert 'getEl("debug-previous-advice")' in script
     assert 'getEl("debug-change-time")' in script
     assert 'getEl("debug-factor-changes")' in script
+    assert 'getEl("debug-regime")' in script
+    assert 'getEl("debug-expected-return")' in script
+    assert 'getEl("debug-position-size")' in script
     assert 'getEl("debug-setup-flags")' in script
     assert 'getEl("debug-confirmation-flags")' in script
     assert 'getEl("debug-risk-flags")' in script

@@ -4,6 +4,7 @@ from typing import Dict
 from app.database import get_db_session
 from app.models import PriceHistory
 from app.price_regime import filter_current_regime
+from app.trading_thresholds import TradingThresholds
 from config import settings
 
 
@@ -116,6 +117,7 @@ class IndicatorCalculator:
                 "macd": None,
                 "macd_signal": None,
                 "macd_histogram": None,
+                "macd_histogram_std": None,
             }
 
         ema_fast = self.calculate_ema(df, self.macd_fast_period)
@@ -123,11 +125,14 @@ class IndicatorCalculator:
         macd_line = ema_fast - ema_slow
         signal_line = macd_line.ewm(span=self.macd_signal_period, adjust=False).mean()
         histogram = macd_line - signal_line
+        histogram_lookback = max(20, TradingThresholds.MACD_STD_LOOKBACK_POINTS)
+        histogram_std = float(histogram.tail(histogram_lookback).std())
 
         return {
             "macd": float(macd_line.iloc[-1]),
             "macd_signal": float(signal_line.iloc[-1]),
             "macd_histogram": float(histogram.iloc[-1]),
+            "macd_histogram_std": histogram_std,
         }
 
     def calculate_all(self) -> Dict:

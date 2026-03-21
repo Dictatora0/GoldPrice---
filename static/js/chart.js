@@ -248,6 +248,31 @@ function stripLeadingEmoji(text) {
   return text.replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s]+/u, "").trim();
 }
 
+function prettifyRegime(regime) {
+  const mapping = {
+    risk_off_falling_knife: "风险关闭 · 飞刀",
+    confirmed_reversal: "确认反转",
+    tentative_reversal: "弱确认反转",
+    reversal_watch: "反转观察",
+    trend_following_up: "顺势偏多",
+    neutral_chop: "震荡中性",
+  };
+  return mapping[regime] || regime || "等待分析";
+}
+
+function formatBasisPoints(value) {
+  const numeric = value == null ? Number.NaN : Number(value);
+  if (!Number.isFinite(numeric)) return "--";
+  const sign = numeric > 0 ? "+" : "";
+  return `${sign}${numeric.toFixed(1)} bp`;
+}
+
+function formatPositionSize(value) {
+  const numeric = value == null ? Number.NaN : Number(value);
+  if (!Number.isFinite(numeric)) return "--";
+  return `${numeric.toFixed(1)}%`;
+}
+
 function getRecommendationToneClass(recommendation) {
   if (recommendation === "强烈推荐买入" || recommendation === "推荐买入") {
     return "market-buy";
@@ -267,7 +292,9 @@ function getRiskToneClass(flag) {
 
 function prettifySetupFlag(flag) {
   const mapping = {
+    extreme_oversold: "极度超卖",
     oversold: "超卖",
+    mild_oversold: "轻度超卖",
     band_break: "跌破下轨",
     below_ma: "低于均线",
   };
@@ -801,6 +828,9 @@ function updateSignalDebug(evaluation) {
   const entryStatusEl = getEl("debug-entry-status");
   const confidenceEl = getEl("debug-confidence");
   const dominantFactorEl = getEl("debug-dominant-factor");
+  const regimeEl = getEl("debug-regime");
+  const expectedReturnEl = getEl("debug-expected-return");
+  const positionSizeEl = getEl("debug-position-size");
   const changeReasonEl = getEl("debug-change-reason");
   const previousAdviceEl = getEl("debug-previous-advice");
   const changeTimeEl = getEl("debug-change-time");
@@ -814,6 +844,9 @@ function updateSignalDebug(evaluation) {
     !entryStatusEl ||
     !confidenceEl ||
     !dominantFactorEl ||
+    !regimeEl ||
+    !expectedReturnEl ||
+    !positionSizeEl ||
     !changeReasonEl ||
     !previousAdviceEl ||
     !changeTimeEl ||
@@ -830,6 +863,9 @@ function updateSignalDebug(evaluation) {
     entryStatusEl.textContent = "等待分析";
     confidenceEl.textContent = "--";
     dominantFactorEl.textContent = "等待分析";
+    regimeEl.textContent = "等待分析";
+    expectedReturnEl.textContent = "--";
+    positionSizeEl.textContent = "--";
     changeReasonEl.textContent = "暂无建议变化记录。";
     previousAdviceEl.textContent = "无历史记录";
     changeTimeEl.textContent = "暂无历史变化";
@@ -842,11 +878,18 @@ function updateSignalDebug(evaluation) {
   }
 
   const explainability = evaluation.explainability || {};
-  entryStatusEl.textContent = evaluation.entry_ready ? "确认通过" : "暂不入场";
+  entryStatusEl.textContent = evaluation.entry_ready
+    ? "确认通过"
+    : evaluation.entry_weak
+      ? "弱确认可试探"
+      : "暂不入场";
   confidenceEl.textContent = Number.isFinite(evaluation.confidence)
     ? `${Math.round(evaluation.confidence * 100)}%`
     : "--";
   dominantFactorEl.textContent = evaluation.dominant_factor || "多因子共同作用";
+  regimeEl.textContent = prettifyRegime(evaluation.regime);
+  expectedReturnEl.textContent = formatBasisPoints(evaluation.expected_return_bp);
+  positionSizeEl.textContent = formatPositionSize(evaluation.suggested_position_pct);
   changeReasonEl.textContent =
     explainability.summary ||
     evaluation.recommendation_change_reason ||

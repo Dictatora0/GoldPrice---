@@ -20,8 +20,10 @@
     <div class="backdrop"></div>
     <main class="shell">
       <header class="mast reveal" style="--delay: 0ms">
-        <div>
+        <div class="mast-copy">
+          <p class="mast-kicker">Gold Strategy Console</p>
           <h1>黄金价格监控与买入信号</h1>
+          <p class="mast-subtitle">多源价格校验 · 技术结构追踪 · 执行参数可视化</p>
         </div>
         <div
           class="status-pill status-pending"
@@ -156,7 +158,7 @@
           </div>
           <ul class="market-insights" id="market-insights"></ul>
         </article>
-        <article class="card reveal" style="--delay: 440ms">
+        <article class="card indicator-quicklook reveal" style="--delay: 440ms">
           <div class="card-header">
             <span>指标速览</span>
             <span class="muted">更新中</span>
@@ -181,6 +183,23 @@
               <div class="debug-meta-item">
                 <p class="label">主导因子</p>
                 <p id="debug-dominant-factor">等待分析</p>
+              </div>
+            </div>
+            <div class="debug-block">
+              <p class="label">策略执行参数</p>
+              <div class="debug-meta debug-decision-grid">
+                <div class="debug-meta-item">
+                  <p class="label">Regime</p>
+                  <p id="debug-regime">等待分析</p>
+                </div>
+                <div class="debug-meta-item">
+                  <p class="label">期望收益</p>
+                  <p id="debug-expected-return">--</p>
+                </div>
+                <div class="debug-meta-item">
+                  <p class="label">建议仓位</p>
+                  <p id="debug-position-size">--</p>
+                </div>
               </div>
             </div>
             <div class="debug-block">
@@ -233,7 +252,7 @@
             </div>
           </div>
         </article>
-        <article class="card reveal" style="--delay: 520ms">
+        <article class="card signal-history reveal" style="--delay: 520ms">
           <div class="card-header">
             <span>信号历史</span>
             <span class="muted">最近30天</span>

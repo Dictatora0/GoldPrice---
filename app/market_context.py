@@ -1,9 +1,35 @@
 from datetime import datetime, timedelta
 from typing import Dict
 
+import numpy as np
+
 from app.database import get_db_session
+from app.market_indicators import MarketIndicators
 from app.models import PriceHistory
 from app.price_regime import filter_current_regime
+from app.trading_thresholds import TradingThresholds
+
+
+def _calculate_momentum_acceleration(price_values: list[float]) -> float:
+    if len(price_values) < 6:
+        return 0.0
+
+    # 3点中位平滑，降低单点异常对斜率的破坏
+    smoothed = np.array(price_values, dtype=float)
+    smoothed = np.convolve(smoothed, np.array([0.25, 0.5, 0.25]), mode="same")
+    smoothed[0] = price_values[0]
+    smoothed[-1] = price_values[-1]
+
+    half = len(smoothed) // 2
+    first = smoothed[:half]
+    second = smoothed[half:]
+    if len(first) < 2 or len(second) < 2:
+        return 0.0
+
+    slope_first = float(np.polyfit(np.arange(len(first)), first, 1)[0])
+    slope_second = float(np.polyfit(np.arange(len(second)), second, 1)[0])
+    baseline = abs(price_values[0]) if price_values and price_values[0] else 1.0
+    return (slope_second - slope_first) / baseline
 
 
 def get_price_momentum(minutes: int = 30) -> dict:
@@ -26,17 +52,14 @@ def get_price_momentum(minutes: int = 30) -> dict:
     last_price = price_values[-1]
     change_pct = ((last_price - first_price) / first_price) * 100
 
-    if change_pct > 0.1:
+    if change_pct > TradingThresholds.MOMENTUM_TREND_UP_THRESHOLD:
         trend = "up"
-    elif change_pct < -0.1:
+    elif change_pct < TradingThresholds.MOMENTUM_TREND_DOWN_THRESHOLD:
         trend = "down"
     else:
         trend = "flat"
 
-    mid = len(price_values) // 2
-    first_half_change = (price_values[mid] - price_values[0]) / price_values[0]
-    second_half_change = (price_values[-1] - price_values[mid]) / price_values[mid]
-    acceleration = second_half_change - first_half_change
+    acceleration = _calculate_momentum_acceleration(price_values)
 
     return {
         "change_pct": change_pct,
@@ -55,17 +78,31 @@ def check_trend_alignment(short: str, mid: str, long: str) -> str:
     return "mixed"
 
 
-def _get_trend(prices) -> str:
+def _trend_threshold(window_hours: int) -> float:
+    hours = max(1.0, float(window_hours))
+    # 短周期允许更敏感，长周期提高阈值以减少噪声误判
+    dynamic_threshold = (
+        TradingThresholds.TREND_THRESHOLD_BASE
+        + min(hours, 24.0) * TradingThresholds.TREND_THRESHOLD_PER_HOUR
+    )
+    return max(
+        TradingThresholds.TREND_THRESHOLD_MIN,
+        min(dynamic_threshold, TradingThresholds.TREND_THRESHOLD_MAX),
+    )
+
+
+def _get_trend(prices, *, window_hours: int) -> str:
     if len(prices) < 2:
         return "unknown"
 
     first = prices[0][0]
     last = prices[-1][0]
     change = ((last - first) / first) * 100
+    threshold = _trend_threshold(window_hours)
 
-    if change > 0.5:
+    if change > threshold:
         return "bullish"
-    if change < -0.5:
+    if change < -threshold:
         return "bearish"
     return "neutral"
 
@@ -96,9 +133,9 @@ def analyze_multi_timeframe() -> Dict:
     mid_term = filter_current_regime(mid_term, price_getter=lambda row: row[0])
     long_term = filter_current_regime(long_term, price_getter=lambda row: row[0])
 
-    short = _get_trend(short_term)
-    mid = _get_trend(mid_term)
-    long = _get_trend(long_term)
+    short = _get_trend(short_term, window_hours=1)
+    mid = _get_trend(mid_term, window_hours=6)
+    long = _get_trend(long_term, window_hours=24)
 
     return {
         "short_term": short,
@@ -125,28 +162,44 @@ def build_entry_context(indicators: dict, momentum: dict, timeframe: dict) -> di
     confirmation_flags = []
     risk_flags = []
 
-    price = indicators.get("current_price")
-    rsi = indicators.get("rsi")
-    bb_lower = indicators.get("bb_lower")
-    ma_medium = indicators.get("ma_medium")
-    macd_histogram = indicators.get("macd_histogram")
+    typed = MarketIndicators.from_dict(indicators)
+    price = typed.current_price
+    bb_lower = typed.bb_lower
+    ma_medium = typed.ma_medium
+    macd_histogram = typed.macd_histogram
 
-    if rsi is not None and rsi < 35:
-        setup_flags.append("oversold")
+    if typed.rsi is not None:
+        if typed.rsi < TradingThresholds.RSI_OVERSOLD_EXTREME:
+            setup_flags.append("extreme_oversold")
+        elif typed.rsi < TradingThresholds.RSI_OVERSOLD:
+            setup_flags.append("oversold")
+        elif typed.rsi < TradingThresholds.RSI_OVERSOLD_MILD:
+            setup_flags.append("mild_oversold")
+
     if price is not None and bb_lower is not None and price < bb_lower:
         setup_flags.append("band_break")
     if price is not None and ma_medium is not None and price < ma_medium * 0.98:
         setup_flags.append("below_ma")
 
     if macd_histogram is not None:
-        if macd_histogram >= -0.12:
+        macd_std = typed.macd_histogram_std
+        if macd_std is None or macd_std <= 0:
+            macd_std = max(abs(macd_histogram), TradingThresholds.MACD_STD_FLOOR)
+
+        stabilizing_threshold = TradingThresholds.MACD_STABILIZING_STD_MULTIPLIER * macd_std
+        contracting_threshold = TradingThresholds.MACD_CONTRACTING_STD_MULTIPLIER * macd_std
+
+        if macd_histogram >= stabilizing_threshold:
             confirmation_flags.append("macd_stabilizing")
-        elif abs(macd_histogram) < 0.3:
+        elif abs(macd_histogram) < contracting_threshold:
             confirmation_flags.append("macd_contracting")
 
-    if momentum.get("acceleration", 0) > 0:
+    if momentum.get("acceleration", 0) > TradingThresholds.MOMENTUM_TURN_ACCELERATION:
         confirmation_flags.append("momentum_turn")
-    elif momentum.get("acceleration", 0) > -0.002 and abs(momentum.get("change_pct", 0)) < 0.6:
+    elif (
+        momentum.get("acceleration", 0) > TradingThresholds.SELLING_PRESSURE_EASING_ACCELERATION
+        and abs(momentum.get("change_pct", 0)) < TradingThresholds.SELLING_PRESSURE_EASING_CHANGE_PCT
+    ):
         confirmation_flags.append("selling_pressure_easing")
 
     if timeframe.get("alignment") != "bearish_aligned":
@@ -158,13 +211,18 @@ def build_entry_context(indicators: dict, momentum: dict, timeframe: dict) -> di
     core_confirmation_flags = [
         flag
         for flag in confirmation_flags
-        if flag in {"macd_stabilizing", "macd_contracting", "momentum_turn"}
+        if flag in TradingThresholds.ENTRY_CORE_CONFIRMATION_FLAGS
     ]
 
-    entry_ready = (
-        len(setup_flags) >= 2
-        and len(confirmation_flags) >= 2
-        and len(core_confirmation_flags) >= 1
+    strong_entry = (
+        len(setup_flags) >= TradingThresholds.ENTRY_SETUP_MIN_STRONG
+        and len(confirmation_flags) >= TradingThresholds.ENTRY_CONFIRM_MIN_STRONG
+        and len(core_confirmation_flags) >= TradingThresholds.ENTRY_CORE_CONFIRM_MIN
+        and "falling_knife" not in risk_flags
+    )
+    weak_entry = (
+        len(setup_flags) >= TradingThresholds.ENTRY_SETUP_MIN_WEAK
+        and len(confirmation_flags) >= TradingThresholds.ENTRY_CONFIRM_MIN_WEAK
         and "falling_knife" not in risk_flags
     )
 
@@ -173,5 +231,6 @@ def build_entry_context(indicators: dict, momentum: dict, timeframe: dict) -> di
         "confirmation_flags": confirmation_flags,
         "core_confirmation_flags": core_confirmation_flags,
         "risk_flags": risk_flags,
-        "entry_ready": entry_ready,
+        "entry_ready": strong_entry,
+        "entry_weak": weak_entry and not strong_entry,
     }

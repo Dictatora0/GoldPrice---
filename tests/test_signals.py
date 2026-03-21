@@ -245,3 +245,92 @@ def test_check_buy_signal_accepts_confirmed_reversal_setup(monkeypatch):
 
     assert created is True
     assert captured["evaluation"]["score"] >= 65
+
+
+def test_evaluate_buy_signal_cached_exposes_unified_decision_fields(monkeypatch):
+    detector = SignalDetector()
+    indicators = {
+        "current_price": 480.0,
+        "rsi": 19.0,
+        "volatility": 1.8,
+        "bb_lower": 482.0,
+        "bb_middle": 491.0,
+        "ma_medium": 500.0,
+        "ma_long": 506.0,
+        "macd": -0.3,
+        "macd_signal": -0.2,
+        "macd_histogram": -0.08,
+    }
+
+    monkeypatch.setattr(detector.calculator, "calculate_all", lambda: indicators)
+    monkeypatch.setattr(
+        detector,
+        "_get_price_momentum",
+        lambda minutes=30: {"change_pct": -0.25, "trend": "down", "acceleration": 0.02},
+    )
+    monkeypatch.setattr(
+        detector,
+        "_analyze_multi_timeframe",
+        lambda: {
+            "short_term": "bearish",
+            "mid_term": "neutral",
+            "long_term": "neutral",
+            "alignment": "mixed",
+        },
+    )
+
+    result = detector.evaluate_buy_signal_cached()
+
+    assert result is not None
+    assert "regime" in result
+    assert "upside_probability" in result
+    assert "expected_return_bp" in result
+    assert "suggested_position_pct" in result
+    assert isinstance(result["suggested_position_pct"], float)
+
+
+def test_has_recent_similar_signal_uses_30_minimum_window(monkeypatch):
+    detector = SignalDetector()
+    original_window = settings.signal_dedup_window_seconds
+    settings.signal_dedup_window_seconds = 600
+
+    session = get_session()
+    try:
+        session.add(
+            AnalysisSignal(
+                timestamp=datetime.now() - pd.Timedelta(minutes=20),
+                signal_type="buy",
+                price_cny_per_gram=480.0,
+                indicators='{"evaluation_score": 72}',
+                notified=False,
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    try:
+        assert detector._has_recent_similar_signal(480.0, 74) is True
+    finally:
+        settings.signal_dedup_window_seconds = original_window
+
+
+def test_has_recent_similar_signal_uses_05_percent_price_tolerance():
+    detector = SignalDetector()
+
+    session = get_session()
+    try:
+        session.add(
+            AnalysisSignal(
+                timestamp=datetime.now(),
+                signal_type="buy",
+                price_cny_per_gram=500.0,
+                indicators='{"evaluation_score": 72}',
+                notified=False,
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    assert detector._has_recent_similar_signal(502.2, 71) is True

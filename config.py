@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     # 数据采集配置
     collection_interval: int = 30
     data_source_timeout: int = 10
-    signal_dedup_window_seconds: int = 600
+    signal_dedup_window_seconds: int = 1800
     price_regime_break_threshold: float = 0.25
     price_guard_reference_window: int = 120
     price_guard_min_reference_points: int = 5

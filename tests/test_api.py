@@ -322,6 +322,37 @@ def test_buy_signal_endpoint_exposes_debug_fields(client, monkeypatch):
     assert data["data"]["risk_flags"] == ["falling_knife"]
 
 
+def test_buy_signal_endpoint_exposes_unified_decision_metrics(client, monkeypatch):
+    from app.api import analysis as analysis_api
+
+    class FakeDetector:
+        def evaluate_buy_signal_cached(self):
+            return {
+                "score": 68,
+                "entry_ready": False,
+                "setup_flags": ["oversold", "band_break"],
+                "confirmation_flags": ["selling_pressure_easing"],
+                "risk_flags": [],
+                "reasons": ["超卖条件具备,但反转确认不足"],
+                "regime": "reversal_watch",
+                "upside_probability": 0.58,
+                "downside_risk_bp": 11.2,
+                "expected_return_bp": 6.8,
+                "suggested_position_pct": 8.0,
+            }
+
+    monkeypatch.setattr(analysis_api, "SignalDetector", FakeDetector)
+
+    response = client.get("/api/analysis/buy-signal")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["data"]["regime"] == "reversal_watch"
+    assert data["data"]["upside_probability"] == 0.58
+    assert data["data"]["expected_return_bp"] == 6.8
+    assert data["data"]["suggested_position_pct"] == 8.0
+
+
 def test_index_html_uses_cache_busted_local_assets(client):
     response = client.get("/")
 

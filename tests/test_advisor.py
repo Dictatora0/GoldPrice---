@@ -88,6 +88,99 @@ def test_calculate_score_penalizes_falling_knife_context():
     assert score >= 60
 
 
+def test_calculate_score_macd_golden_cross_reduces_buy_score():
+    advisor = MarketAdvisor()
+
+    indicators = {
+        'macd': 0.5,
+        'macd_signal': 0.2,
+        'macd_histogram': 0.3,
+    }
+
+    score = advisor._calculate_score(indicators)
+
+    assert score < 50
+
+
+def test_calculate_score_macd_death_cross_increases_risk_score():
+    advisor = MarketAdvisor()
+
+    indicators = {
+        'macd': -0.6,
+        'macd_signal': -0.2,
+        'macd_histogram': -0.5,
+    }
+
+    score = advisor._calculate_score(indicators)
+
+    assert score > 50
+
+
+def test_calculate_score_falling_knife_penalty_is_tiered_by_confirmation():
+    advisor = MarketAdvisor()
+
+    base_indicators = {
+        'current_price': 480.0,
+        'rsi': 25.0,
+        'bb_lower': 490.0,
+        'bb_middle': 500.0,
+        'bb_upper': 510.0,
+        'ma_medium': 500.0,
+        'ma_long': 510.0,
+        'macd': -0.8,
+        'macd_signal': -0.3,
+        'macd_histogram': -0.6,
+        '_risk_flags': ['falling_knife'],
+    }
+
+    no_confirmation = {
+        **base_indicators,
+        '_entry_context': {
+            'setup_flags': [],
+            'confirmation_flags': [],
+            'risk_flags': ['falling_knife'],
+            'entry_ready': False,
+        },
+    }
+    confirmed = {
+        **base_indicators,
+        '_entry_context': {
+            'setup_flags': [],
+            'confirmation_flags': ['macd_stabilizing', 'momentum_turn'],
+            'risk_flags': ['falling_knife'],
+            'entry_ready': True,
+        },
+    }
+
+    score_no_confirmation = advisor._calculate_score(no_confirmation)
+    score_confirmed = advisor._calculate_score(confirmed)
+
+    assert score_no_confirmation > score_confirmed
+    assert score_no_confirmation - score_confirmed >= 20
+
+
+def test_calculate_score_bollinger_break_adjusts_by_band_width_and_depth():
+    advisor = MarketAdvisor()
+
+    narrow_band = {
+        'current_price': 96.0,
+        'bb_lower': 100.0,
+        'bb_middle': 101.0,
+        'bb_upper': 102.0,
+    }
+    wide_band = {
+        'current_price': 96.0,
+        'bb_lower': 100.0,
+        'bb_middle': 120.0,
+        'bb_upper': 140.0,
+    }
+
+    score_narrow = advisor._calculate_score(narrow_band)
+    score_wide = advisor._calculate_score(wide_band)
+
+    assert score_narrow < score_wide
+
+
 def test_get_recommendation_strong_buy():
     """测试强烈推荐买入"""
     advisor = MarketAdvisor()
@@ -410,6 +503,116 @@ def test_analyze_uses_observe_action_when_setup_lacks_confirmation(monkeypatch):
     assert result is not None
     assert result['action_label'] == '继续观望'
     assert '等待' in result['action_detail']
+
+
+def test_analyze_downgrades_buy_recommendation_when_entry_not_ready(monkeypatch):
+    advisor = MarketAdvisor()
+
+    monkeypatch.setattr(
+        advisor.calculator,
+        'calculate_all',
+        lambda: {
+            'current_price': 480.0,
+            'rsi': 18.0,
+            'bb_lower': 485.0,
+            'bb_middle': 490.0,
+            'bb_upper': 495.0,
+            'ma_medium': 500.0,
+            'ma_long': 510.0,
+            'macd': -0.2,
+            'macd_signal': -0.1,
+            'macd_histogram': -0.05,
+            'volatility': 1.6,
+        },
+    )
+    monkeypatch.setattr(
+        advisor,
+        '_build_signal_risk_context',
+        lambda indicators: {
+            **indicators,
+            '_momentum_context': {'change_pct': -0.35, 'trend': 'down', 'acceleration': -0.0008},
+            '_timeframe_context': {
+                'short_term': 'bearish',
+                'mid_term': 'neutral',
+                'long_term': 'neutral',
+                'alignment': 'mixed',
+            },
+            '_risk_flags': [],
+            '_entry_context': {
+                'setup_flags': ['oversold', 'band_break', 'below_ma'],
+                'confirmation_flags': ['selling_pressure_easing'],
+                'risk_flags': [],
+                'entry_ready': False,
+            },
+        },
+    )
+    monkeypatch.setattr(advisor, '_get_price_trend_analysis', lambda: {
+        'recent_change': -0.35,
+        'today_change': -0.7,
+        'momentum': 'down',
+    })
+
+    result = advisor.analyze()
+
+    assert result is not None
+    assert result['recommendation'] == '观望'
+    assert result['action_label'] == '继续观望'
+    assert '确认' in result['market_state'] or '观察' in result['market_state']
+
+
+def test_analyze_never_returns_buy_when_entry_is_not_ready(monkeypatch):
+    advisor = MarketAdvisor()
+
+    monkeypatch.setattr(
+        advisor.calculator,
+        'calculate_all',
+        lambda: {
+            'current_price': 480.0,
+            'rsi': 18.0,
+            'bb_lower': 485.0,
+            'bb_middle': 490.0,
+            'bb_upper': 495.0,
+            'ma_medium': 500.0,
+            'ma_long': 510.0,
+            'macd': 0.4,
+            'macd_signal': 0.2,
+            'macd_histogram': 0.12,
+            'volatility': 1.2,
+        },
+    )
+    monkeypatch.setattr(
+        advisor,
+        '_build_signal_risk_context',
+        lambda indicators: {
+            **indicators,
+            '_momentum_context': {'change_pct': -0.1, 'trend': 'flat', 'acceleration': -0.001},
+            '_timeframe_context': {
+                'short_term': 'neutral',
+                'mid_term': 'neutral',
+                'long_term': 'neutral',
+                'alignment': 'mixed',
+            },
+            '_risk_flags': [],
+            '_entry_context': {
+                'setup_flags': [],
+                'confirmation_flags': ['trend_pressure_not_extreme'],
+                'risk_flags': [],
+                'entry_ready': False,
+                'entry_weak': False,
+            },
+        },
+    )
+    monkeypatch.setattr(advisor, '_get_price_trend_analysis', lambda: {
+        'recent_change': -0.1,
+        'today_change': -0.2,
+        'momentum': 'neutral',
+    })
+
+    result = advisor.analyze()
+
+    assert result is not None
+    assert result['entry_ready'] is False
+    assert result['recommendation'] not in {'强烈推荐买入', '推荐买入'}
 
 
 def test_analyze_exposes_explainability_timeline(monkeypatch):

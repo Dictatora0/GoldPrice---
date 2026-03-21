@@ -1,4 +1,5 @@
 from app.analyzers.indicators import IndicatorCalculator
+from app.analyzers.decision_engine import evaluate_decision_core
 from app.database import get_db_session
 from app.market_context import (
     analyze_multi_timeframe,
@@ -14,6 +15,7 @@ import json
 import logging
 from config import settings
 import numpy as np
+from app.trading_thresholds import TradingThresholds
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +23,9 @@ logger = logging.getLogger(__name__)
 class SignalDetector:
     """买入信号检测器 - 增强版"""
 
-    CACHE_SCHEMA_VERSION = "v2"
+    CACHE_SCHEMA_VERSION = "v3"
+    MIN_SIGNAL_DEDUP_WINDOW_SECONDS = TradingThresholds.SIGNAL_DEDUP_MIN_WINDOW_SECONDS
+    SIGNAL_DEDUP_RELATIVE_TOLERANCE = TradingThresholds.SIGNAL_DEDUP_RELATIVE_TOLERANCE
 
     def __init__(self):
         self.calculator = IndicatorCalculator()
@@ -74,8 +78,13 @@ class SignalDetector:
         if price_cny_per_gram is None:
             return False
 
+        dedup_window_seconds = max(
+            settings.signal_dedup_window_seconds,
+            self.MIN_SIGNAL_DEDUP_WINDOW_SECONDS,
+        )
+
         with get_db_session(read_only=True) as session:
-            cutoff_time = datetime.now() - timedelta(seconds=settings.signal_dedup_window_seconds)
+            cutoff_time = datetime.now() - timedelta(seconds=dedup_window_seconds)
             recent_signals = (
                 session.query(
                     AnalysisSignal.price_cny_per_gram,
@@ -87,7 +96,10 @@ class SignalDetector:
                 .all()
             )
 
-        price_tolerance = max(0.5, price_cny_per_gram * 0.0015)
+        price_tolerance = max(
+            0.5,
+            price_cny_per_gram * self.SIGNAL_DEDUP_RELATIVE_TOLERANCE,
+        )
         for existing_price, indicators_raw in recent_signals:
             if abs(existing_price - price_cny_per_gram) > price_tolerance:
                 continue
@@ -244,6 +256,28 @@ class SignalDetector:
         }
 
     @staticmethod
+    def _attach_unified_decision(evaluation: dict, indicators: dict) -> dict:
+        """将统一决策内核结果附加到信号评估，保证各模块口径一致。"""
+        unified = evaluate_decision_core(
+            indicators,
+            momentum=evaluation.get("momentum"),
+            timeframe=evaluation.get("timeframe"),
+        )
+
+        merged = dict(evaluation)
+        merged["entry_ready"] = unified["entry_ready"]
+        merged["entry_weak"] = unified.get("entry_weak", False)
+        merged["setup_flags"] = unified["setup_flags"]
+        merged["confirmation_flags"] = unified["confirmation_flags"]
+        merged["risk_flags"] = unified["risk_flags"]
+        merged["regime"] = unified["regime"]
+        merged["upside_probability"] = unified["upside_probability"]
+        merged["downside_risk_bp"] = unified["downside_risk_bp"]
+        merged["expected_return_bp"] = unified["expected_return_bp"]
+        merged["suggested_position_pct"] = unified["suggested_position_pct"]
+        return merged
+
+    @staticmethod
     def evaluate_buy_signal(indicators: dict) -> bool:
         """
         根据指标判断是否满足买入条件(保留向后兼容)
@@ -299,6 +333,7 @@ class SignalDetector:
 
         # 使用增强版评估
         evaluation = self._evaluate_buy_signal_enhanced(indicators)
+        evaluation = self._attach_unified_decision(evaluation, indicators)
         score = evaluation["score"]
 
         logger.info(
@@ -350,6 +385,12 @@ class SignalDetector:
                 "setup_flags": evaluation.get("setup_flags", []),
                 "confirmation_flags": evaluation.get("confirmation_flags", []),
                 "entry_ready": evaluation.get("entry_ready", False),
+                "entry_weak": evaluation.get("entry_weak", False),
+                "regime": evaluation.get("regime"),
+                "upside_probability": evaluation.get("upside_probability"),
+                "downside_risk_bp": evaluation.get("downside_risk_bp"),
+                "expected_return_bp": evaluation.get("expected_return_bp"),
+                "suggested_position_pct": evaluation.get("suggested_position_pct"),
                 "momentum": evaluation["momentum"],
                 "timeframe_analysis": evaluation["timeframe"]
             }
@@ -423,7 +464,10 @@ class SignalDetector:
                 indicators = self.calculator.calculate_all()
                 if not indicators:
                     return None
-                return self._evaluate_buy_signal_enhanced(indicators)
+                return self._attach_unified_decision(
+                    self._evaluate_buy_signal_enhanced(indicators),
+                    indicators,
+                )
 
             cache_key = f"signals:{self.CACHE_SCHEMA_VERSION}:{latest[0].isoformat()}"
 
@@ -440,7 +484,10 @@ class SignalDetector:
         if not indicators:
             return None
 
-        result = self._evaluate_buy_signal_enhanced(indicators)
+        result = self._attach_unified_decision(
+            self._evaluate_buy_signal_enhanced(indicators),
+            indicators,
+        )
         cache_manager.set(
             cache_key,
             json.dumps(result, default=str),

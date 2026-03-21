@@ -1,8 +1,10 @@
 import json
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
+from app.analyzers.decision_engine import evaluate_decision_core
 from app.analyzers.indicators import IndicatorCalculator
 from app.database import get_db_session
+from app.market_indicators import MarketIndicators
 from app.market_context import (
     analyze_multi_timeframe,
     build_entry_context,
@@ -12,12 +14,13 @@ from app.market_context import (
 from app.price_regime import filter_current_regime
 from app.price_regime import build_regime_meta
 from app.models import PriceHistory, AdviceSnapshot
+from app.trading_thresholds import TradingThresholds
 
 
 class MarketAdvisor:
     """市场智能顾问 - 基于多指标综合分析提供买入建议(增强版)"""
 
-    CACHE_SCHEMA_VERSION = "v3"
+    CACHE_SCHEMA_VERSION = "v6"
 
     def __init__(self):
         self.calculator = IndicatorCalculator()
@@ -87,55 +90,66 @@ class MarketAdvisor:
 
     def _calculate_score(self, indicators: Dict) -> int:
         """计算综合评分 (0-100分,越低越适合买入)"""
-        score = 50  # 基准分
+        score = TradingThresholds.SCORE_BASELINE
         risk_flags = set(indicators.get('_risk_flags', []))
         momentum = indicators.get('_momentum_context') or {}
         timeframe = indicators.get('_timeframe_context') or {}
         entry_context = self._get_entry_context(indicators)
+        typed = MarketIndicators.from_dict(indicators)
 
-        # 提取指标值
-        rsi = indicators.get('rsi')
-        price = indicators.get('current_price')
-        bb_lower = indicators.get('bb_lower')
-        bb_middle = indicators.get('bb_middle')
-        bb_upper = indicators.get('bb_upper')
-        ma_medium = indicators.get('ma_medium')
-        ma_long = indicators.get('ma_long')
-        macd = indicators.get('macd')
-        macd_signal = indicators.get('macd_signal')
-        macd_histogram = indicators.get('macd_histogram')
+        rsi = typed.rsi
+        price = typed.current_price
+        bb_lower = typed.bb_lower
+        bb_middle = typed.bb_middle
+        bb_upper = typed.bb_upper
+        ma_medium = typed.ma_medium
+        ma_long = typed.ma_long
+        macd = typed.macd
+        macd_signal = typed.macd_signal
+        macd_histogram = typed.macd_histogram
 
         if not risk_flags and momentum and timeframe and is_falling_knife(indicators, momentum, timeframe):
             risk_flags.add('falling_knife')
 
         # RSI 评分 (权重 30%)
         if rsi is not None:
-            if rsi < 30:
-                score -= 15  # 超卖,强烈买入信号
+            if rsi < TradingThresholds.RSI_OVERSOLD:
+                score += TradingThresholds.RSI_SCORE_OVERSOLD
             elif rsi < 40:
-                score -= 10  # 接近超卖
-            elif rsi > 70:
-                score += 15  # 超买,不推荐
-            elif rsi > 60:
-                score += 10  # 接近超买
+                score += TradingThresholds.RSI_SCORE_MILD_OVERSOLD
+            elif rsi > TradingThresholds.RSI_OVERBOUGHT:
+                score += TradingThresholds.RSI_SCORE_OVERBOUGHT
+            elif rsi > TradingThresholds.RSI_OVERBOUGHT_MILD:
+                score += TradingThresholds.RSI_SCORE_MILD_OVERBOUGHT
 
         # 布林带位置 (权重 25%)
         if price and bb_lower and bb_middle and bb_upper:
+            band_width = typed.bollinger_band_width_ratio()
             if price < bb_lower:
-                score -= 12  # 价格低于下轨,超卖
+                break_depth = typed.bollinger_break_depth_ratio() or 0.0
+                if band_width is not None and band_width < TradingThresholds.BB_NARROW_BAND_WIDTH:
+                    score += (
+                        TradingThresholds.BB_SCORE_BREAK_NARROW
+                        - int(break_depth * TradingThresholds.BB_BREAK_DEPTH_MULTIPLIER_NARROW)
+                    )
+                else:
+                    score += (
+                        TradingThresholds.BB_SCORE_BREAK_WIDE
+                        - int(break_depth * TradingThresholds.BB_BREAK_DEPTH_MULTIPLIER_WIDE)
+                    )
             elif price < bb_middle:
-                score -= 6   # 价格在下轨和中轨之间
+                score += TradingThresholds.BB_SCORE_BELOW_MIDDLE
             elif price > bb_upper:
-                score += 12  # 价格高于上轨,超买
+                score += TradingThresholds.BB_SCORE_ABOVE_UPPER
             elif price > bb_middle:
-                score += 6   # 价格在中轨和上轨之间
+                score += TradingThresholds.BB_SCORE_ABOVE_MIDDLE
 
         # MACD (权重 25%)
         if macd is not None and macd_signal is not None and macd_histogram is not None:
             if macd > macd_signal and macd_histogram > 0:
-                score += 12  # 金叉,上涨动量
+                score += TradingThresholds.MACD_SCORE_GOLDEN_CROSS
             elif macd < macd_signal and macd_histogram < 0:
-                score -= 12  # 死叉,下跌动量
+                score += TradingThresholds.MACD_SCORE_DEATH_CROSS
 
             # 柱状图变化趋势
             if abs(macd_histogram) < 0.1:
@@ -153,7 +167,13 @@ class MarketAdvisor:
             score += 8
 
         if 'falling_knife' in risk_flags:
-            score += 65  # 与信号模块保持一致: 下跌共振时不应给出偏买入评分
+            confirmation_count = len(entry_context.get('confirmation_flags', []))
+            if entry_context.get('entry_ready', False):
+                score += 32
+            elif confirmation_count >= 2:
+                score += 45
+            else:
+                score += 60
 
         if len(entry_context.get('setup_flags', [])) >= 2 and not entry_context.get('entry_ready', False):
             score += 18
@@ -177,9 +197,28 @@ class MarketAdvisor:
         else:
             return "强烈不推荐"
 
+    def _align_recommendation_with_entry_context(self, recommendation: str, indicators: Dict) -> str:
+        """确保综合建议与入场确认状态保持一致，避免前后矛盾。"""
+        risk_flags = set(indicators.get('_risk_flags', []))
+        entry_context = self._get_entry_context(indicators)
+        entry_ready = entry_context.get('entry_ready', False)
+        entry_weak = entry_context.get('entry_weak', False)
+
+        if 'falling_knife' in risk_flags and recommendation in {"强烈推荐买入", "推荐买入", "观望"}:
+            return "不推荐"
+
+        if not entry_ready and recommendation in {"强烈推荐买入", "推荐买入"}:
+            return "观望"
+
+        if recommendation == "强烈推荐买入" and entry_weak:
+            return "推荐买入"
+
+        return recommendation
+
     def _describe_market_state(self, indicators: Dict) -> str:
         """描述市场状态"""
         risk_flags = set(indicators.get('_risk_flags', []))
+        entry_context = self._get_entry_context(indicators)
         rsi = indicators.get('rsi')
         price = indicators.get('current_price')
         bb_lower = indicators.get('bb_lower')
@@ -222,6 +261,8 @@ class MarketAdvisor:
 
         if 'falling_knife' in risk_flags:
             states.insert(0, "市场处于飞刀式下跌阶段")
+        elif len(entry_context.get('setup_flags', [])) >= 2 and not entry_context.get('entry_ready', False):
+            states.insert(0, "入场形态已出现但反转确认不足,当前更适合观察")
 
         return "，".join(states) if states else "市场状态正常"
 
@@ -407,8 +448,10 @@ class MarketAdvisor:
         return {
             "setup_flags": [],
             "confirmation_flags": [],
+            "core_confirmation_flags": [],
             "risk_flags": indicators.get('_risk_flags', []),
             "entry_ready": False,
+            "entry_weak": False,
         }
 
     def _format_key_indicators(self, indicators: Dict) -> Dict:
@@ -877,12 +920,20 @@ class MarketAdvisor:
             return None
 
         indicators = self._build_signal_risk_context(indicators)
+        decision_core = evaluate_decision_core(
+            indicators,
+            momentum=indicators.get('_momentum_context'),
+            timeframe=indicators.get('_timeframe_context'),
+        )
+        indicators['_risk_flags'] = decision_core['risk_flags']
+        indicators['_entry_context'] = decision_core['entry_context']
 
         # 计算评分
         score = self._calculate_score(indicators)
 
         # 生成建议
         recommendation = self._get_recommendation(score)
+        recommendation = self._align_recommendation_with_entry_context(recommendation, indicators)
 
         # 生成市场状态描述
         market_state = self._describe_market_state(indicators)
@@ -906,6 +957,15 @@ class MarketAdvisor:
             "recommendation": recommendation,
             "market_state": market_state,
             "risk_flags": indicators.get("_risk_flags", []),
+            "entry_ready": decision_core["entry_ready"],
+            "entry_weak": decision_core.get("entry_weak", False),
+            "setup_flags": decision_core["setup_flags"],
+            "confirmation_flags": decision_core["confirmation_flags"],
+            "regime": decision_core["regime"],
+            "upside_probability": decision_core["upside_probability"],
+            "downside_risk_bp": decision_core["downside_risk_bp"],
+            "expected_return_bp": decision_core["expected_return_bp"],
+            "suggested_position_pct": decision_core["suggested_position_pct"],
             "chart_status": self._build_chart_status(),
             "action_label": action_guidance["action_label"],
             "action_detail": action_guidance["action_detail"],
