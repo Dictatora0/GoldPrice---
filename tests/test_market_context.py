@@ -20,7 +20,7 @@ def test_build_entry_context_supports_weak_entry_without_core_confirmation():
         "macd_histogram": -0.8,
         "macd_histogram_std": 0.2,
     }
-    momentum = {"change_pct": -0.3, "trend": "down", "acceleration": -0.001}
+    momentum = {"change_pct": -0.3, "trend": "down", "acceleration": -0.003}
     timeframe = {"alignment": "mixed"}
 
     result = market_context.build_entry_context(indicators, momentum, timeframe)
@@ -30,6 +30,25 @@ def test_build_entry_context_supports_weak_entry_without_core_confirmation():
     assert result["core_confirmation_flags"] == []
     assert result["entry_ready"] is False
     assert result["entry_weak"] is True
+
+
+def test_build_entry_context_allows_strong_entry_without_core_confirmation():
+    indicators = {
+        "current_price": 480.0,
+        "rsi": 22.0,
+        "bb_lower": 485.0,
+        "ma_medium": 500.0,
+        "macd_histogram": -0.8,
+        "macd_histogram_std": 0.2,
+    }
+    momentum = {"change_pct": -0.3, "trend": "down", "acceleration": -0.001}
+    timeframe = {"alignment": "mixed"}
+
+    result = market_context.build_entry_context(indicators, momentum, timeframe)
+
+    assert len(result["confirmation_flags"]) >= 2
+    assert result["core_confirmation_flags"] == []
+    assert result["entry_ready"] is True
 
 
 def test_build_entry_context_rsi_oversold_tiers():
@@ -60,6 +79,14 @@ def test_calculate_momentum_acceleration_is_robust_to_midpoint_spike():
     robust = market_context._calculate_momentum_acceleration(with_spike)
 
     assert abs(robust - baseline) < 0.02
+
+
+def test_calculate_momentum_acceleration_with_small_sample_is_not_zero():
+    prices = [100.0, 99.9, 99.8, 99.6]
+
+    acceleration = market_context._calculate_momentum_acceleration(prices)
+
+    assert acceleration != 0.0
 
 
 def test_build_entry_context_macd_thresholds_are_std_adaptive():

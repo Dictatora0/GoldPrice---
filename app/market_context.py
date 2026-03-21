@@ -11,8 +11,20 @@ from app.trading_thresholds import TradingThresholds
 
 
 def _calculate_momentum_acceleration(price_values: list[float]) -> float:
-    if len(price_values) < 6:
+    if len(price_values) < 3:
         return 0.0
+
+    if len(price_values) < 6:
+        mid = max(1, len(price_values) // 2)
+        first_half = price_values[:mid]
+        second_half = price_values[mid:]
+        if len(first_half) < 2 or len(second_half) < 2:
+            return 0.0
+
+        slope_first = (first_half[-1] - first_half[0]) / max(1, len(first_half) - 1)
+        slope_second = (second_half[-1] - second_half[0]) / max(1, len(second_half) - 1)
+        baseline = abs(price_values[0]) if price_values and price_values[0] else 1.0
+        return (slope_second - slope_first) / baseline
 
     # 3点中位平滑，降低单点异常对斜率的破坏
     smoothed = np.array(price_values, dtype=float)

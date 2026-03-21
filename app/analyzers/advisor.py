@@ -169,11 +169,11 @@ class MarketAdvisor:
         if 'falling_knife' in risk_flags:
             confirmation_count = len(entry_context.get('confirmation_flags', []))
             if entry_context.get('entry_ready', False):
-                score += 32
+                score += TradingThresholds.FALLING_KNIFE_PENALTY_ENTRY_READY
             elif confirmation_count >= 2:
-                score += 45
+                score += TradingThresholds.FALLING_KNIFE_PENALTY_CONFIRMED
             else:
-                score += 60
+                score += TradingThresholds.FALLING_KNIFE_PENALTY_UNCONFIRMED
 
         if len(entry_context.get('setup_flags', [])) >= 2 and not entry_context.get('entry_ready', False):
             score += 18

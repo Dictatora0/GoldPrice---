@@ -159,6 +159,34 @@ def test_calculate_score_falling_knife_penalty_is_tiered_by_confirmation():
     assert score_no_confirmation - score_confirmed >= 20
 
 
+def test_calculate_score_falling_knife_entry_ready_penalty_is_limited():
+    advisor = MarketAdvisor()
+
+    indicators = {
+        'current_price': 480.0,
+        'rsi': 25.0,
+        'bb_lower': 490.0,
+        'bb_middle': 500.0,
+        'bb_upper': 510.0,
+        'ma_medium': 500.0,
+        'ma_long': 510.0,
+        'macd': -0.8,
+        'macd_signal': -0.3,
+        'macd_histogram': -0.6,
+        '_risk_flags': ['falling_knife'],
+        '_entry_context': {
+            'setup_flags': [],
+            'confirmation_flags': ['macd_stabilizing', 'momentum_turn'],
+            'risk_flags': ['falling_knife'],
+            'entry_ready': True,
+        },
+    }
+
+    score = advisor._calculate_score(indicators)
+
+    assert score <= 50
+
+
 def test_calculate_score_bollinger_break_adjusts_by_band_width_and_depth():
     advisor = MarketAdvisor()
 
@@ -482,7 +510,7 @@ def test_analyze_uses_observe_action_when_setup_lacks_confirmation(monkeypatch):
         '_build_signal_risk_context',
         lambda indicators: {
             **indicators,
-            '_momentum_context': {'change_pct': -0.4, 'trend': 'down', 'acceleration': -0.001},
+            '_momentum_context': {'change_pct': -0.4, 'trend': 'down', 'acceleration': -0.003},
             '_timeframe_context': {
                 'short_term': 'bearish',
                 'mid_term': 'neutral',

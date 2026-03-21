@@ -111,7 +111,10 @@ class SignalDetector:
                 except (json.JSONDecodeError, AttributeError):
                     existing_score = None
 
-            if existing_score is None or abs(existing_score - score) <= 5:
+            if (
+                existing_score is None
+                or abs(existing_score - score) <= TradingThresholds.SIGNAL_DEDUP_SCORE_TOLERANCE
+            ):
                 return True
 
         return False

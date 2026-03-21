@@ -180,7 +180,7 @@ def test_check_buy_signal_requires_reversal_confirmation(monkeypatch):
     monkeypatch.setattr(
         detector,
         "_get_price_momentum",
-        lambda minutes=30: {"change_pct": -0.4, "trend": "down", "acceleration": -0.001},
+        lambda minutes=30: {"change_pct": -0.4, "trend": "down", "acceleration": -0.003},
     )
     monkeypatch.setattr(
         detector,
@@ -334,3 +334,24 @@ def test_has_recent_similar_signal_uses_05_percent_price_tolerance():
         session.close()
 
     assert detector._has_recent_similar_signal(502.2, 71) is True
+
+
+def test_has_recent_similar_signal_uses_10_point_score_tolerance():
+    detector = SignalDetector()
+
+    session = get_session()
+    try:
+        session.add(
+            AnalysisSignal(
+                timestamp=datetime.now(),
+                signal_type="buy",
+                price_cny_per_gram=500.0,
+                indicators='{"evaluation_score": 70}',
+                notified=False,
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    assert detector._has_recent_similar_signal(500.6, 79) is True
