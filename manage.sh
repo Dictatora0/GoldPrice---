@@ -22,6 +22,9 @@ PORT_START="${PORT_START:-8000}"
 PORT_END="${PORT_END:-8100}"
 STARTUP_WAIT_SECONDS="${STARTUP_WAIT_SECONDS:-2}"
 STOP_TIMEOUT_SECONDS="${STOP_TIMEOUT_SECONDS:-10}"
+HEALTHCHECK_TIMEOUT_SECONDS="${HEALTHCHECK_TIMEOUT_SECONDS:-25}"
+HEALTHCHECK_INTERVAL_SECONDS="${HEALTHCHECK_INTERVAL_SECONDS:-1}"
+HEALTH_ENDPOINT_PATH="${HEALTH_ENDPOINT_PATH:-/api/health}"
 
 if [ -t 1 ]; then
   COLOR_INFO="$(printf '\033[36m')"
@@ -97,6 +100,7 @@ Commands:
   cleanup-backfill      Clean orphan history + malformed signals in a created_at window
   config                Print resolved runtime configuration
   doctor                Run runtime health checks and dependency hints
+  daemon-check          Check daemon runtime status via health endpoint
   help                  Show this help message
 
 Environment variables:
@@ -107,6 +111,11 @@ Environment variables:
   PORT_END              Port scan end for process detection (default: 8100)
   STARTUP_WAIT_SECONDS  Seconds to wait after startup (default: 2)
   STOP_TIMEOUT_SECONDS  Graceful stop timeout in seconds (default: 10)
+  HEALTHCHECK_TIMEOUT_SECONDS
+                        Max seconds to wait for health endpoint after start (default: 25)
+  HEALTHCHECK_INTERVAL_SECONDS
+                        Poll interval in seconds during health wait (default: 1)
+  HEALTH_ENDPOINT_PATH  Health API path used by startup/daemon-check (default: /api/health)
 
 Examples:
   $0 start
@@ -162,6 +171,94 @@ for port in range(start, end + 1):
             sys.exit(0)
 sys.exit(1)
 PY
+}
+
+resolve_health_url() {
+  local detected port
+  detected="$(detect_pid_by_port || true)"
+  if [ -n "$detected" ]; then
+    read -r _ port <<<"$detected"
+  fi
+  if [ -z "$port" ]; then
+    port="8000"
+  fi
+  printf 'http://127.0.0.1:%s%s' "$port" "$HEALTH_ENDPOINT_PATH"
+}
+
+fetch_health_payload() {
+  local health_url="$1"
+  "$PYTHON_BIN" - "$health_url" <<'PY'
+import sys
+from urllib.request import urlopen
+from urllib.error import URLError, HTTPError
+
+url = sys.argv[1]
+try:
+    with urlopen(url, timeout=2) as resp:
+        body = resp.read().decode("utf-8", "replace")
+except HTTPError as exc:
+    print(f"__ERROR__:http:{exc.code}")
+    sys.exit(1)
+except URLError as exc:
+    print(f"__ERROR__:network:{exc.reason}")
+    sys.exit(1)
+except Exception as exc:
+    print(f"__ERROR__:unknown:{exc}")
+    sys.exit(1)
+
+print(body)
+PY
+}
+
+health_payload_ok() {
+  local payload="$1"
+  if [[ "$payload" == __ERROR__:* ]]; then
+    return 1
+  fi
+  if printf '%s' "$payload" | grep -q '"status"[[:space:]]*:[[:space:]]*"ok"' \
+    && printf '%s' "$payload" | grep -q '"success"[[:space:]]*:[[:space:]]*true'; then
+    return 0
+  fi
+  return 1
+}
+
+startup_payload_ready() {
+  local payload="$1"
+  if [[ "$payload" == __ERROR__:* ]]; then
+    return 1
+  fi
+  if health_payload_ok "$payload"; then
+    return 0
+  fi
+  if printf '%s' "$payload" | grep -q '"app"[[:space:]]*:[[:space:]]*"ok"' \
+    && printf '%s' "$payload" | grep -q '"database"[[:space:]]*:[[:space:]]*{"ok"[[:space:]]*:[[:space:]]*true' \
+    && printf '%s' "$payload" | grep -q '"runtime"[[:space:]]*:[[:space:]]*{"ok"[[:space:]]*:[[:space:]]*true'; then
+    return 0
+  fi
+  return 1
+}
+
+wait_for_healthy_startup() {
+  local health_url="$1"
+  local timeout="$2"
+  local interval="$3"
+  local deadline=$((SECONDS + timeout))
+  local payload=""
+
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    payload="$(fetch_health_payload "$health_url" || true)"
+    if startup_payload_ready "$payload"; then
+      log_success "Health check passed: $health_url"
+      return 0
+    fi
+    sleep "$interval"
+  done
+
+  log_error "Health check did not pass within ${timeout}s: $health_url"
+  if [ -n "$payload" ]; then
+    log_error "Last health payload/error: $payload"
+  fi
+  return 1
 }
 
 ensure_runtime_prerequisites() {
@@ -239,8 +336,18 @@ start_server() {
       read -r pid port <<<"$detected"
       log_info "Detected listening port: $port"
     fi
-    log_info "Next steps: '$0 status' or '$0 logs 120 --no-follow'"
-    return 0
+    local health_url
+    health_url="$(resolve_health_url)"
+    if wait_for_healthy_startup "$health_url" "$HEALTHCHECK_TIMEOUT_SECONDS" "$HEALTHCHECK_INTERVAL_SECONDS"; then
+      log_info "Next steps: '$0 daemon-check' or '$0 logs 120 --no-follow'"
+      return 0
+    fi
+    log_error "Server process is alive but health is not ready."
+    if [ -f "$LOG_FILE" ]; then
+      log_error "Last 40 log lines:"
+      tail -n 40 "$LOG_FILE" >&2 || true
+    fi
+    return 1
   fi
 
   log_error "Failed to start server."
@@ -432,6 +539,9 @@ Resolved configuration:
   PORT_END             $PORT_END
   STARTUP_WAIT_SECONDS $STARTUP_WAIT_SECONDS
   STOP_TIMEOUT_SECONDS $STOP_TIMEOUT_SECONDS
+  HEALTHCHECK_TIMEOUT_SECONDS $HEALTHCHECK_TIMEOUT_SECONDS
+  HEALTHCHECK_INTERVAL_SECONDS $HEALTHCHECK_INTERVAL_SECONDS
+  HEALTH_ENDPOINT_PATH $HEALTH_ENDPOINT_PATH
 EOF
 }
 
@@ -477,6 +587,37 @@ PY
   fi
 }
 
+run_daemon_check() {
+  ensure_runtime_prerequisites
+
+  local pid
+  pid="$(find_running_instance || true)"
+  if [ -z "$pid" ]; then
+    log_error "Server is not running."
+    return 1
+  fi
+
+  local health_url payload
+  health_url="$(resolve_health_url)"
+  payload="$(fetch_health_payload "$health_url" || true)"
+
+  if health_payload_ok "$payload"; then
+    log_success "Daemon health check passed."
+    printf "%s\n" "$payload"
+    return 0
+  fi
+
+  log_error "Daemon health check failed."
+  if [ -n "$payload" ]; then
+    log_error "Health payload/error: $payload"
+  fi
+  if [ -f "$LOG_FILE" ]; then
+    log_error "Last 30 log lines:"
+    tail -n 30 "$LOG_FILE" >&2 || true
+  fi
+  return 1
+}
+
 COMMAND="${1:-help}"
 if [ "$#" -gt 0 ]; then
   shift
@@ -513,6 +654,9 @@ case "$COMMAND" in
     ;;
   doctor)
     run_doctor
+    ;;
+  daemon-check)
+    run_daemon_check
     ;;
   help|-h|--help)
     usage

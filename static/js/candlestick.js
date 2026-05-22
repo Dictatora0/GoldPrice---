@@ -5,8 +5,7 @@
 
 const CANDLESTICK_REQUEST_TIMEOUT_MS = 10000;
 const LIGHTWEIGHT_CHARTS_SOURCES = [
-  "https://cdn.jsdelivr.net/npm/lightweight-charts@5.0.9/dist/lightweight-charts.standalone.production.js",
-  "https://unpkg.com/lightweight-charts@5.0.9/dist/lightweight-charts.standalone.production.js",
+  "/static/vendor/lightweight-charts.standalone.production.js",
 ];
 
 let candlestickChart = null;
@@ -17,6 +16,8 @@ let currentInterval = "1h";
 let pendingCandlestickController = null;
 let resizeBound = false;
 let lightweightChartsLoadPromise = null;
+let supportResistancePriceLines = [];
+let supportResistanceLineDefs = [];
 
 function getCandlestickContainer() {
   return document.getElementById("candlestick-container");
@@ -113,6 +114,50 @@ function resizeCandlestickChart() {
   candlestickChart.applyOptions(getCandlestickChartSize(container));
 }
 
+function clearSupportResistancePriceLines() {
+  if (!candlestickSeries || !supportResistancePriceLines.length) {
+    supportResistancePriceLines = [];
+    return;
+  }
+  supportResistancePriceLines.forEach((line) => {
+    try {
+      candlestickSeries.removePriceLine(line);
+    } catch (error) {
+      console.error("Failed to remove price line:", error);
+    }
+  });
+  supportResistancePriceLines = [];
+}
+
+function applySupportResistancePriceLines() {
+  if (!candlestickSeries) return;
+
+  clearSupportResistancePriceLines();
+  const lines = Array.isArray(supportResistanceLineDefs) ? supportResistanceLineDefs : [];
+  if (!lines.length) return;
+
+  const colorMap = {
+    support: "rgba(47, 214, 198, 0.7)",
+    resistance: "rgba(255, 143, 127, 0.78)",
+    round: "rgba(242, 178, 76, 0.64)",
+  };
+
+  lines.slice(0, 6).forEach((line) => {
+    const price = Number(line?.price);
+    if (!Number.isFinite(price)) return;
+    const kind = line?.kind || "round";
+    const created = candlestickSeries.createPriceLine({
+      price,
+      color: colorMap[kind] || colorMap.round,
+      lineWidth: 1,
+      lineStyle: kind === "round" ? 1 : 2,
+      axisLabelVisible: true,
+      title: line?.label || kind.toUpperCase(),
+    });
+    supportResistancePriceLines.push(created);
+  });
+}
+
 function toChartTime(timestamp) {
   return Math.floor(new Date(timestamp).getTime() / 1000);
 }
@@ -206,6 +251,8 @@ function initCandlestickChart() {
     candlestickChart?.timeScale().fitContent();
   });
 
+  applySupportResistancePriceLines();
+
   return candlestickChart;
 }
 
@@ -290,6 +337,7 @@ async function loadCandlestickData(days = 7, interval = "1h") {
       window.updateCandlestickChartContext(data.items, interval);
     }
     if (candlestickChart) {
+      applySupportResistancePriceLines();
       resizeCandlestickChart();
       candlestickChart.timeScale().fitContent();
     }
@@ -424,3 +472,8 @@ if (document.readyState === "loading") {
   bindChartTypeSwitch();
   bindIntervalSwitch();
 }
+
+window.updateCandlestickSupportResistanceLines = (lines) => {
+  supportResistanceLineDefs = Array.isArray(lines) ? lines : [];
+  applySupportResistancePriceLines();
+};

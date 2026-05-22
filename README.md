@@ -24,6 +24,7 @@
 
 ```bash
 pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 #### 2. 配置环境变量
@@ -71,6 +72,39 @@ docker-compose down
 - Prometheus指标: http://localhost:9090/metrics
 - 健康检查: http://localhost:8000/healthcheck
 
+## ▶️ 启动命令速查（可直接复制）
+
+本地前台启动（适合调试）：
+
+```bash
+cp .env.example .env
+python run.py --init-db
+python run.py
+```
+
+本地后台启动（推荐日常使用）：
+
+```bash
+
+
+```
+
+后台停止/重启：
+
+```bash
+./manage.sh stop
+./manage.sh restart
+```
+
+Docker Compose 启动：
+
+```bash
+cp .env.example .env
+docker-compose up -d
+docker-compose logs -f
+docker-compose down
+```
+
 ## 📋 管理命令
 
 使用 `manage.sh` 脚本管理服务:
@@ -84,6 +118,48 @@ docker-compose down
 ./manage.sh test       # 运行测试
 ./manage.sh init-db    # 初始化数据库
 ```
+
+## 🛠️ 后台常驻运行（稳定模式）
+
+推荐用 `manage.sh` 作为常驻启动入口，它已做了后台自检：
+
+```bash
+# 1) 初始化
+cp .env.example .env
+./manage.sh init-db
+
+# 2) 后台启动（会等待健康检查通过）
+./manage.sh start
+
+# 3) 查看状态
+./manage.sh status
+./manage.sh daemon-check
+
+# 4) 查看日志
+./manage.sh logs 120 --no-follow
+```
+
+说明：
+- `start` 不再只看进程存活，会轮询 `GET /api/health`，确认系统真正可用后才返回成功。
+- `daemon-check` 会输出健康 JSON，便于确认采集调度、告警检测循环是否都在后台运行。
+- 若健康检查失败，脚本会打印日志尾部，便于快速定位问题。
+
+可调参数（按需）：
+- `HEALTHCHECK_TIMEOUT_SECONDS`：启动后健康探测超时（默认 25 秒）
+- `HEALTHCHECK_INTERVAL_SECONDS`：健康探测轮询间隔（默认 1 秒）
+- `HEALTH_ENDPOINT_PATH`：健康检查路径（默认 `/api/health`）
+
+后台常驻的关键检查项：
+- `runtime.scheduler.running=true`：采集调度器正在运行
+- `runtime.alerts_loop.running=true`：自定义预警/系统告警检测循环正在运行
+- `runtime.details.scheduler.collect.last_success_at`：最近一次采集成功时间
+- `runtime.details.alerts_loop.last_success_at`：最近一次告警检测成功时间
+
+最小排障清单：
+1. `./manage.sh daemon-check` 看 `status` 是否 `ok`。
+2. 若 `runtime.scheduler.running=false`，先看 `logs/server.out` 是否缺少 `apscheduler` 依赖。
+3. 若 `runtime.alerts_loop.running=false`，检查启动日志中是否有 `Alert evaluation error`。
+4. 若 `data.ok=false`（数据过期），检查采集源连通性和 `COLLECTION_INTERVAL`。
 
 ## 🎯 使用指南
 
@@ -147,6 +223,7 @@ docker-compose down
 # 数据采集
 COLLECTION_INTERVAL=30       # 采集间隔(秒)
 DATA_SOURCE_TIMEOUT=10       # 数据源超时(秒)
+PRICE_GUARD_REFERENCE_MAX_AGE_HOURS=12  # 价格守卫参考数据最大时效(小时)
 
 # 技术指标
 RSI_PERIOD=14               # RSI周期
@@ -162,22 +239,26 @@ NOTIFICATION_COOLDOWN=24    # 通知冷却时间(小时)
 # 数据库
 DATABASE_PATH=data/gold_price.db
 BACKUP_ENABLED=true         # 启用自动备份
-BACKUP_TIME=02:00          # 备份时间
-DATABASE_POOL_SIZE=10       # 连接池大小
-DATABASE_MAX_OVERFLOW=20    # 最大溢出连接数
+BACKUP_TIME=02:00           # 备份时间
+DATABASE_POOL_SIZE=10        # 连接池大小
+DATABASE_MAX_OVERFLOW=20     # 最大溢出连接数
 
 # Redis缓存
 REDIS_ENABLED=true          # 启用Redis缓存
 REDIS_HOST=localhost        # Redis主机
-REDIS_PORT=6379            # Redis端口
-CACHE_INDICATORS_TTL=120   # 指标缓存时间(秒)
-CACHE_PRICE_TTL=120        # 价格缓存时间(秒)
+REDIS_PORT=6379             # Redis端口
+REDIS_PASSWORD=__SET_REDIS_PASSWORD_IF_NEEDED__   # 可选
+CACHE_INDICATORS_TTL=120    # 指标缓存时间(秒)
+CACHE_PRICE_TTL=120         # 价格缓存时间(秒)
 
 # PostgreSQL日志
-LOG_TO_POSTGRES=false      # 启用PostgreSQL日志存储
-POSTGRES_HOST=localhost    # PostgreSQL主机
-POSTGRES_PORT=5432         # PostgreSQL端口
-LOG_RETENTION_DAYS=30      # 日志保留天数
+LOG_TO_POSTGRES=false       # 启用PostgreSQL日志存储
+POSTGRES_HOST=localhost     # PostgreSQL主机
+POSTGRES_PORT=5432          # PostgreSQL端口
+POSTGRES_DB=goldprice_logs  # PostgreSQL数据库
+POSTGRES_USER=goldprice     # PostgreSQL用户名
+POSTGRES_PASSWORD=__SET_A_STRONG_PASSWORD__       # 仅在 LOG_TO_POSTGRES=true 时必填
+LOG_RETENTION_DAYS=30       # 日志保留天数
 
 # 监控告警
 PROMETHEUS_ENABLED=true    # 启用Prometheus指标
@@ -234,6 +315,15 @@ DEBUG=false
 - `GET /api/analysis/indicators` - 获取技术指标
 - `GET /api/analysis/signals` - 获取买入信号历史
 - `GET /api/analysis/advice` - 获取智能建议
+- `GET /api/analysis/signal-performance` - 获取历史信号回测表现
+- `GET /api/analysis/support-resistance` - 获取自动识别支撑/阻力位
+
+### 预警相关
+- `GET /api/alerts` - 获取自定义预警规则
+- `POST /api/alerts` - 新增预警规则
+- `PATCH /api/alerts/{rule_id}` - 修改预警规则
+- `DELETE /api/alerts/{rule_id}` - 删除预警规则
+- `GET /api/alerts/deliveries` - 查看通知发送日志（支持 channel/status 过滤）
 
 ### 监控相关
 - `GET /api/health` - 健康检查
@@ -251,6 +341,15 @@ curl http://localhost:8000/api/price/current
 
 # 获取智能建议
 curl http://localhost:8000/api/analysis/advice
+
+# 获取信号回测统计(默认3/7/30天窗口)
+curl "http://localhost:8000/api/analysis/signal-performance?window_days=180&horizons=3,7,30"
+
+# 获取支撑/阻力关键位
+curl "http://localhost:8000/api/analysis/support-resistance?window_days=180&pivot_window=5"
+
+# 新增自定义预警：价格跌破 580 元
+curl -X POST "http://localhost:8000/api/alerts?name=price-floor-580&rule_type=price_below&threshold=580&channels=system,webhook&cooldown_minutes=60&enabled=true"
 
 # 获取K线数据
 curl "http://localhost:8000/api/price/candlestick?days=7&interval=1h"
@@ -307,6 +406,30 @@ curl "http://localhost:8000/api/logs?start=2026-03-17T00:00:00&end=2026-03-17T23
 # 或
 python -m pytest tests/ -v
 ```
+
+依赖安全扫描:
+
+```bash
+python -m pip_audit -r requirements.txt
+```
+
+自定义预警通知通道配置（可选）：
+
+- `ALERT_WEBHOOK_URL`：通用 Webhook（Apprise 支持的 URL）
+- `ALERT_EMAIL_URL`：邮件通道 URL（Apprise 格式）
+- `ALERT_WECHAT_URL`：微信通道 URL（Apprise 格式）
+- `ALERT_WEBHOOK_MAX_RETRIES`：Webhook 失败后重试次数（默认 1，总尝试 2 次）
+- `ALERT_EMAIL_MAX_RETRIES`：Email 失败后重试次数（默认 2，总尝试 3 次）
+- `ALERT_WECHAT_MAX_RETRIES`：WeChat 失败后重试次数（默认 2，总尝试 3 次）
+- `ALERT_COOLDOWN_MINUTES`：系统级告警冷却时间
+
+通知策略说明：
+
+- `channels=system`：走本地系统通知（macOS）
+- `channels=email/wechat/webhook`：按通道独立发送，失败自动重试，并写入 `notification_delivery_logs` 发送日志表
+- 通道未配置时不会中断主流程，但会写入失败日志，便于排查
+
+测试工具和安全扫描工具位于 `requirements-dev.txt`, 不会进入生产运行时依赖。
 
 运行特定测试:
 
@@ -403,4 +526,4 @@ MIT License
 
 ---
 
-**Made with ❤️ by Claude Sonnet 4.6**
+项目作者与维护者以仓库提交历史为准。

@@ -12,12 +12,13 @@ from app.models import PriceHistory, AnalysisSignal
 from datetime import datetime, timedelta
 from typing import Optional
 import json
-import logging
 from config import settings
 import numpy as np
 from app.trading_thresholds import TradingThresholds
+from app.cache import build_cache_key, get_json_cache, set_json_cache
+from app.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SignalDetector:
@@ -455,7 +456,6 @@ class SignalDetector:
 
     def evaluate_buy_signal_cached(self) -> Optional[dict]:
         """评估买入信号(带缓存)"""
-        from app.cache import cache_manager
         from config import settings
 
         with get_db_session(read_only=True) as session:
@@ -472,15 +472,10 @@ class SignalDetector:
                     indicators,
                 )
 
-            cache_key = f"signals:{self.CACHE_SCHEMA_VERSION}:{latest[0].isoformat()}"
+            cache_key = build_cache_key("signal", self.CACHE_SCHEMA_VERSION, latest[0].isoformat())
 
-        cached = cache_manager.get(cache_key)
-        if cached:
-            if isinstance(cached, str):
-                try:
-                    return json.loads(cached)
-                except json.JSONDecodeError:
-                    pass
+        cached = get_json_cache(cache_key)
+        if cached is not None:
             return cached
 
         indicators = self.calculator.calculate_all()
@@ -491,10 +486,6 @@ class SignalDetector:
             self._evaluate_buy_signal_enhanced(indicators),
             indicators,
         )
-        cache_manager.set(
-            cache_key,
-            json.dumps(result, default=str),
-            ttl=settings.cache_signals_ttl,
-        )
+        set_json_cache(cache_key, result, settings.cache_signals_ttl)
 
         return result

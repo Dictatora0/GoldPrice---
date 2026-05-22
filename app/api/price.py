@@ -6,9 +6,10 @@ from collections import OrderedDict
 from typing import Optional, List, Dict
 
 import pandas as pd
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query
 
-from app.cache import cache_manager
+from app.api.errors import error_response
+from app.cache import cache_manager, get_json_cache, set_json_cache, build_cache_key
 from app.database import get_db_session
 from app.models import PriceHistory
 from app.price_regime import build_regime_meta, filter_current_regime
@@ -16,8 +17,34 @@ from config import settings
 
 router = APIRouter(prefix="/api/price", tags=["price"])
 
-_HISTORY_LOCAL_CACHE: OrderedDict[str, tuple[float, Dict]] = OrderedDict()
-_HISTORY_LOCAL_CACHE_MAX_ITEMS = 256
+class HistoryLocalCache:
+    def __init__(self, max_items: int = 256):
+        self.max_items = max_items
+        self._store: OrderedDict[str, tuple[float, Dict]] = OrderedDict()
+
+    def get(self, cache_key: str) -> Optional[Dict]:
+        item = self._store.get(cache_key)
+        if not item:
+            return None
+        expires_at, payload = item
+        if expires_at <= time.time():
+            self._store.pop(cache_key, None)
+            return None
+        self._store.move_to_end(cache_key)
+        return payload
+
+    def set(self, cache_key: str, payload: Dict, ttl: int) -> None:
+        self._store[cache_key] = (time.time() + ttl, payload)
+        self._store.move_to_end(cache_key)
+        while len(self._store) > self.max_items:
+            self._store.popitem(last=False)
+
+    def clear(self) -> None:
+        self._store.clear()
+
+
+history_local_cache = HistoryLocalCache()
+_HISTORY_LOCAL_CACHE = history_local_cache
 _PRICE_CACHE_SCHEMA_VERSION = "v2"
 
 
@@ -50,53 +77,21 @@ def downsample_history(items: List[Dict], interval: Optional[str]) -> List[Dict]
 
 def _history_cache_key(days: int, interval: Optional[str], latest_timestamp: datetime) -> str:
     interval_token = parse_interval(interval) or interval or "raw"
-    return (
-        f"price:history:{_PRICE_CACHE_SCHEMA_VERSION}:"
-        f"{days}:{interval_token}:{latest_timestamp.isoformat()}"
+    return build_cache_key(
+        "history",
+        "price",
+        _PRICE_CACHE_SCHEMA_VERSION,
+        str(days),
+        interval_token,
+        latest_timestamp.isoformat(),
     )
 
 
-def _get_local_history_cache(cache_key: str) -> Optional[Dict]:
-    item = _HISTORY_LOCAL_CACHE.get(cache_key)
-    if not item:
-        return None
-
-    expires_at, payload = item
-    if expires_at <= time.time():
-        _HISTORY_LOCAL_CACHE.pop(cache_key, None)
-        return None
-
-    _HISTORY_LOCAL_CACHE.move_to_end(cache_key)
-    return payload
-
-
-def _set_local_history_cache(cache_key: str, payload: Dict, ttl: int):
-    _HISTORY_LOCAL_CACHE[cache_key] = (time.time() + ttl, payload)
-    _HISTORY_LOCAL_CACHE.move_to_end(cache_key)
-
-    while len(_HISTORY_LOCAL_CACHE) > _HISTORY_LOCAL_CACHE_MAX_ITEMS:
-        _HISTORY_LOCAL_CACHE.popitem(last=False)
-
-
-def _decode_cached_payload(cached: Optional[str]) -> Optional[Dict]:
-    if not cached:
-        return None
-    if isinstance(cached, str):
-        try:
-            payload = json.loads(cached)
-        except json.JSONDecodeError:
-            return None
-    elif isinstance(cached, dict):
-        payload = cached
-    else:
-        return None
-
-    if isinstance(payload, dict) and "items" in payload:
-        return payload
-    return None
-
-
-@router.get("/current")
+@router.get(
+    "/current",
+    summary="Get current gold price",
+    description="Return the latest persisted gold price and source count.",
+)
 def get_current_price():
     with get_db_session(read_only=True) as session:
         latest = (
@@ -109,7 +104,7 @@ def get_current_price():
             .first()
         )
         if not latest:
-            raise HTTPException(status_code=404, detail="No price data")
+            return error_response(404, "PRICE_NOT_FOUND", "No price data", "No price data")
         timestamp, price_cny_per_gram, source_count = latest
         return {
             "timestamp": timestamp.isoformat(),
@@ -118,14 +113,18 @@ def get_current_price():
         }
 
 
-@router.get("/history")
+@router.get(
+    "/history",
+    summary="Get historical gold prices",
+    description="Return historical gold prices with optional downsampling and regime filtering metadata.",
+)
 def get_price_history(
     days: int = Query(30, ge=1, le=3650),
     interval: Optional[str] = Query(None, description="e.g. 1h, 30m, 1d"),
 ):
     interval_str = parse_interval(interval)
     if interval and interval_str is None:
-        raise HTTPException(status_code=400, detail="Invalid interval")
+        return error_response(400, "INVALID_INTERVAL", "Invalid interval", "Invalid interval")
 
     with get_db_session(read_only=True) as session:
         latest = (
@@ -137,13 +136,13 @@ def get_price_history(
             return {"items": []}
 
         cache_key = _history_cache_key(days, interval_str or interval, latest[0])
-        cached_payload = _get_local_history_cache(cache_key)
+        cached_payload = history_local_cache.get(cache_key)
         if cached_payload is not None:
             return cached_payload
 
-        cached_payload = _decode_cached_payload(cache_manager.get(cache_key))
+        cached_payload = get_json_cache(cache_key)
         if cached_payload is not None:
-            _set_local_history_cache(cache_key, cached_payload, settings.cache_history_ttl)
+            history_local_cache.set(cache_key, cached_payload, settings.cache_history_ttl)
             return cached_payload
 
         start_time = datetime.now() - timedelta(days=days)
@@ -180,16 +179,16 @@ def get_price_history(
                 for item in items
             ]
         response = {"items": output, "meta": meta}
-        _set_local_history_cache(cache_key, response, settings.cache_history_ttl)
-        cache_manager.set(
-            cache_key,
-            json.dumps(response, default=str),
-            ttl=settings.cache_history_ttl,
-        )
+        history_local_cache.set(cache_key, response, settings.cache_history_ttl)
+        set_json_cache(cache_key, response, settings.cache_history_ttl)
         return response
 
 
-@router.get("/candlestick")
+@router.get(
+    "/candlestick",
+    summary="Get OHLC candlestick data",
+    description="Aggregate historical prices into OHLC candlesticks for supported intervals.",
+)
 def get_candlestick_data(
     days: int = Query(7, ge=1, le=365),
     interval: str = Query("1h", description="1h, 4h, 1d"),
@@ -198,7 +197,12 @@ def get_candlestick_data(
     # 验证间隔参数
     valid_intervals = {"1h": "1h", "4h": "4h", "1d": "1D"}
     if interval not in valid_intervals:
-        raise HTTPException(status_code=400, detail="Invalid interval. Use: 1h, 4h, 1d")
+        return error_response(
+            400,
+            "INVALID_INTERVAL",
+            "Invalid interval. Use: 1h, 4h, 1d",
+            "Invalid interval. Use: 1h, 4h, 1d",
+        )
 
     interval_str = valid_intervals[interval]
 

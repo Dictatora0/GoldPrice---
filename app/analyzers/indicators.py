@@ -1,10 +1,10 @@
-import json
 import pandas as pd
-from typing import Dict
+from typing import Dict, Optional
 from app.database import get_db_session
 from app.models import PriceHistory
 from app.price_regime import filter_current_regime
 from app.trading_thresholds import TradingThresholds
+from app.cache import build_cache_key, get_json_cache, set_json_cache
 from config import settings
 
 
@@ -24,15 +24,16 @@ class IndicatorCalculator:
         self.macd_slow_period = settings.macd_slow_period
         self.macd_signal_period = settings.macd_signal_period
 
-    def get_price_data(self, days: int = 90) -> pd.DataFrame:
+    def get_price_data(self, days: int = 90, *, limit: Optional[int] = None) -> pd.DataFrame:
         """获取历史价格数据"""
         with get_db_session(read_only=True) as session:
-            records = session.query(
+            query = session.query(
                 PriceHistory.timestamp,
                 PriceHistory.price_cny_per_gram,
-            ).order_by(
-                PriceHistory.timestamp.desc()
-            ).limit(days * 480).all()  # 每天480条记录(3分钟一次)
+            ).order_by(PriceHistory.timestamp.desc())
+            if limit is None:
+                limit = days * 480
+            records = query.limit(limit).all()
 
             if not records:
                 return pd.DataFrame()
@@ -135,7 +136,7 @@ class IndicatorCalculator:
             "macd_histogram_std": histogram_std,
         }
 
-    def calculate_all(self) -> Dict:
+    def calculate_all(self) -> Optional[Dict]:
         """计算所有技术指标"""
         import math
 
@@ -171,9 +172,8 @@ class IndicatorCalculator:
 
         return indicators
 
-    def calculate_all_cached(self) -> Dict:
+    def calculate_all_cached(self) -> Optional[Dict]:
         """计算所有技术指标(带缓存)"""
-        from app.cache import cache_manager
         from config import settings
 
         with get_db_session(read_only=True) as session:
@@ -184,25 +184,16 @@ class IndicatorCalculator:
             if not latest:
                 return self.calculate_all()
 
-            cache_key = f"indicators:{self.CACHE_SCHEMA_VERSION}:{latest[0].isoformat()}"
+            cache_key = build_cache_key("indicator", self.CACHE_SCHEMA_VERSION, latest[0].isoformat())
 
-        cached = cache_manager.get(cache_key)
-        if cached:
-            if isinstance(cached, str):
-                try:
-                    return json.loads(cached)
-                except json.JSONDecodeError:
-                    pass
+        cached = get_json_cache(cache_key)
+        if cached is not None:
             return cached
 
         result = self.calculate_all()
         if result is None:
             return None
 
-        cache_manager.set(
-            cache_key,
-            json.dumps(result, default=str),
-            ttl=settings.cache_indicators_ttl,
-        )
+        set_json_cache(cache_key, result, settings.cache_indicators_ttl)
 
         return result

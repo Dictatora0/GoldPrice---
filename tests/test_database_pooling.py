@@ -1,8 +1,10 @@
+from datetime import datetime
+
 import pytest
 from sqlalchemy.orm import Session
-from app.database import get_db_session, engine, SessionLocal
+
+from app.database import get_db_session, engine
 from app.models import Base, PriceHistory
-from datetime import datetime
 
 
 @pytest.fixture(scope="function")
@@ -79,3 +81,16 @@ def test_connection_pool_reuse(setup_test_db):
 
     # All sessions should use the same engine instance
     assert len(sessions) == 5
+
+
+def test_session_close_after_context(setup_test_db):
+    with get_db_session() as session:
+        session.add(
+            PriceHistory(
+                timestamp=datetime.now(),
+                price_cny_per_gram=501.0,
+                source_count=1,
+            )
+        )
+
+    assert session.is_active

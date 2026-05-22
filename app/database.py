@@ -1,12 +1,23 @@
+import os
+from contextlib import contextmanager
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.logging_config import get_logger
 from app.models import Base
 from config import settings
-from contextlib import contextmanager
-import os
+
+logger = get_logger(__name__)
 
 # 创建全局数据库引擎（带连接池）
 os.makedirs(os.path.dirname(settings.database_path), exist_ok=True)
+
+if not settings.database_path.endswith(".db"):
+    logger.warning("Database path does not look like a SQLite file: %s", settings.database_path)
+
+if settings.database_pool_size > 0 and settings.database_path.endswith(".db"):
+    logger.warning("SQLite is being used with a connection pool; PostgreSQL is recommended for production.")
 
 if settings.database_pool_size == 0:
     # Disable pooling for tests
@@ -60,10 +71,18 @@ def get_db_session(*, read_only: bool = False):
         session.close()
 
 
+@contextmanager
+def session_scope(*, read_only: bool = False):
+    """Preferred database session context manager."""
+    with get_db_session(read_only=read_only) as session:
+        yield session
+
+
 def get_session() -> Session:
     """
     获取数据库会话（向后兼容）
     注意：使用此方法需要手动管理会话的关闭
     推荐使用 get_db_session() 上下文管理器
     """
+    logger.warning("get_session() is deprecated; use session_scope() instead")
     return SessionLocal()

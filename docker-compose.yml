@@ -7,10 +7,13 @@ services:
       - "8000:8000"
       - "9090:9090"
     environment:
-      - REDIS_HOST=redis
-      - POSTGRES_HOST=postgres
-      - REDIS_ENABLED=true
-      - LOG_TO_POSTGRES=true
+      REDIS_HOST: redis
+      POSTGRES_HOST: postgres
+      REDIS_ENABLED: "true"
+      LOG_TO_POSTGRES: "true"
+      POSTGRES_DB: goldprice_logs
+      POSTGRES_USER: goldprice
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     depends_on:
       - redis
       - postgres
@@ -37,9 +40,9 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_DB=goldprice_logs
-      - POSTGRES_USER=goldprice
-      - POSTGRES_PASSWORD=changeme
+      POSTGRES_DB: goldprice_logs
+      POSTGRES_USER: goldprice
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped

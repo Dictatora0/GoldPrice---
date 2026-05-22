@@ -17,6 +17,7 @@ const state = {
   refreshHandle: null,
   lineChartContext: null,
   candlestickChartContext: null,
+  supportResistanceLines: [],
 };
 
 function getEl(id) {
@@ -65,6 +66,43 @@ function formatPercent(value) {
   if (value == null || Number.isNaN(value)) return "--";
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}%`;
+}
+
+function formatPctCompact(value) {
+  if (value == null || Number.isNaN(Number(value))) return "--";
+  const numeric = Number(value);
+  const sign = numeric > 0 ? "+" : "";
+  return `${sign}${numeric.toFixed(2)}%`;
+}
+
+function formatSignedNumber(value, digits = 2) {
+  if (value == null || Number.isNaN(Number(value))) return "--";
+  const numeric = Number(value);
+  const sign = numeric > 0 ? "+" : "";
+  return `${sign}${numeric.toFixed(digits)}`;
+}
+
+function prettifyAlertType(ruleType) {
+  const mapping = {
+    price_above: "价格突破",
+    price_below: "价格跌破",
+    rsi_above: "RSI 超买",
+    rsi_below: "RSI 超卖",
+    daily_change_abs_gte: "单日波动",
+  };
+  return mapping[ruleType] || ruleType;
+}
+
+function formatAlertThreshold(ruleType, threshold) {
+  const numeric = Number(threshold);
+  if (!Number.isFinite(numeric)) return "--";
+  if (ruleType === "rsi_above" || ruleType === "rsi_below") {
+    return numeric.toFixed(2);
+  }
+  if (ruleType === "daily_change_abs_gte") {
+    return `${numeric.toFixed(2)}%`;
+  }
+  return `¥${numeric.toFixed(2)}`;
 }
 
 function simpleMovingAverage(values, windowSize) {
@@ -233,6 +271,575 @@ function updateSignals(signals) {
   }
   if (reasonEl) {
     reasonEl.textContent = `价格 ¥${latest.price_cny_per_gram.toFixed(2)} · RSI ${latest.indicators?.rsi ?? "--"}`;
+  }
+}
+
+function resolveHorizonStat(performance, horizonDays) {
+  const stats = Array.isArray(performance?.horizon_stats) ? performance.horizon_stats : [];
+  if (!stats.length) return null;
+  const exact = stats.find((item) => Number(item?.horizon_days) === Number(horizonDays));
+  return exact || stats[0];
+}
+
+function updateSignalPerformance(performance) {
+  const signalCountEl = getEl("backtest-signal-count");
+  const evaluatedCountEl = getEl("backtest-evaluated-count");
+  const primaryWindowEl = getEl("backtest-window");
+  const avgReturnEl = getEl("backtest-avg-return");
+  const winRateEl = getEl("backtest-win-rate");
+  const drawdownEl = getEl("backtest-max-drawdown");
+  const highScoreEl = getEl("backtest-highscore");
+  const correlationEl = getEl("backtest-correlation");
+
+  if (
+    !signalCountEl ||
+    !evaluatedCountEl ||
+    !primaryWindowEl ||
+    !avgReturnEl ||
+    !winRateEl ||
+    !drawdownEl ||
+    !highScoreEl ||
+    !correlationEl
+  ) {
+    return;
+  }
+
+  if (!performance) {
+    signalCountEl.textContent = "--";
+    evaluatedCountEl.textContent = "--";
+    primaryWindowEl.textContent = "等待回测";
+    avgReturnEl.textContent = "--";
+    winRateEl.textContent = "--";
+    drawdownEl.textContent = "--";
+    highScoreEl.textContent = "高分信号表现暂不可用";
+    correlationEl.textContent = "评分与收益相关性暂不可用";
+    return;
+  }
+
+  signalCountEl.textContent = `${Number(performance.signal_count || 0)}`;
+  evaluatedCountEl.textContent = `${Number(performance.evaluated_signal_count || 0)}`;
+
+  const primaryHorizon = resolveHorizonStat(performance, 7) || resolveHorizonStat(performance, 3);
+  const horizonDays = primaryHorizon?.horizon_days ?? 7;
+  primaryWindowEl.textContent = `${horizonDays}天窗口`;
+  avgReturnEl.textContent = formatPctCompact(primaryHorizon?.avg_return_pct);
+  winRateEl.textContent = formatPctCompact(primaryHorizon?.win_rate_pct);
+  drawdownEl.textContent = formatPctCompact(primaryHorizon?.max_drawdown_pct);
+
+  const highScore = performance.high_score_segment || {};
+  const highSampleCount = Number(highScore.sample_count || 0);
+  highScoreEl.textContent =
+    highSampleCount > 0
+      ? `评分≥${highScore.threshold}，${highScore.horizon_days}天胜率 ${formatPctCompact(highScore.win_rate_pct)}`
+      : `评分≥${highScore.threshold || 80} 暂无足够样本`;
+
+  correlationEl.textContent =
+    primaryHorizon?.score_return_correlation == null
+      ? "评分与收益相关性样本不足"
+      : `评分-收益相关性: ${Number(primaryHorizon.score_return_correlation).toFixed(3)}`;
+}
+
+function levelToneClass(kind) {
+  if (kind === "support") return "sr-item-support";
+  if (kind === "resistance") return "sr-item-resistance";
+  return "sr-item-round";
+}
+
+function renderSupportResistanceList(levelData) {
+  const listEl = getEl("sr-level-list");
+  if (!listEl) return;
+
+  if (!levelData) {
+    listEl.innerHTML = "<li>等待关键位分析</li>";
+    return;
+  }
+
+  const supports = Array.isArray(levelData.supports) ? levelData.supports.slice(0, 2) : [];
+  const resistances = Array.isArray(levelData.resistances) ? levelData.resistances.slice(0, 2) : [];
+  const rows = [
+    ...supports.map((item, idx) => ({
+      kind: "support",
+      label: `S${idx + 1}`,
+      price: item.price,
+      strength: item.strength,
+    })),
+    ...resistances.map((item, idx) => ({
+      kind: "resistance",
+      label: `R${idx + 1}`,
+      price: item.price,
+      strength: item.strength,
+    })),
+  ];
+
+  if (!rows.length) {
+    listEl.innerHTML = "<li>当前窗口未识别出稳定支撑/阻力</li>";
+    return;
+  }
+
+  listEl.innerHTML = rows
+    .map(
+      (row) =>
+        `<li class="${levelToneClass(row.kind)}">${row.label} · ¥${Number(row.price).toFixed(2)} · 强度 ${Number(row.strength || 0)}</li>`
+    )
+    .join("");
+}
+
+function updateSupportResistance(levelData) {
+  const supportEl = getEl("sr-nearest-support");
+  const resistanceEl = getEl("sr-nearest-resistance");
+  const roundLevelsEl = getEl("sr-round-levels");
+  const currentPriceEl = getEl("sr-current-price");
+
+  if (!supportEl || !resistanceEl || !roundLevelsEl || !currentPriceEl) {
+    return;
+  }
+
+  if (!levelData) {
+    currentPriceEl.textContent = "--";
+    supportEl.textContent = "等待分析";
+    resistanceEl.textContent = "等待分析";
+    roundLevelsEl.textContent = "等待分析";
+    renderSupportResistanceList(null);
+    state.supportResistanceLines = [];
+    if (typeof window.updateCandlestickSupportResistanceLines === "function") {
+      window.updateCandlestickSupportResistanceLines([]);
+    }
+    return;
+  }
+
+  currentPriceEl.textContent = formatPrice(levelData.current_price);
+
+  const nearestSupport = levelData.nearest_support;
+  const nearestResistance = levelData.nearest_resistance;
+
+  supportEl.textContent = nearestSupport
+    ? `¥${Number(nearestSupport.price).toFixed(2)} (${formatPctCompact(-Math.abs(Number(nearestSupport.distance_pct || 0)))})`
+    : "暂无";
+  resistanceEl.textContent = nearestResistance
+    ? `¥${Number(nearestResistance.price).toFixed(2)} (+${Math.abs(Number(nearestResistance.distance_pct || 0)).toFixed(2)}%)`
+    : "暂无";
+
+  const roundLevels = Array.isArray(levelData.round_levels) ? levelData.round_levels : [];
+  roundLevelsEl.textContent = roundLevels.length
+    ? roundLevels
+        .slice(Math.max(0, roundLevels.length - 5))
+        .map((value) => `¥${Number(value).toFixed(0)}`)
+        .join(" / ")
+    : "暂无";
+
+  renderSupportResistanceList(levelData);
+
+  state.supportResistanceLines = Array.isArray(levelData.plot_lines) ? levelData.plot_lines : [];
+  if (typeof window.updateCandlestickSupportResistanceLines === "function") {
+    window.updateCandlestickSupportResistanceLines(state.supportResistanceLines);
+  }
+}
+
+function renderCustomAlertList(items) {
+  const listEl = getEl("custom-alert-list");
+  if (!listEl) return;
+
+  const rows = Array.isArray(items) ? items : [];
+  if (!rows.length) {
+    listEl.innerHTML = "<li>暂无自定义预警</li>";
+    return;
+  }
+
+  listEl.innerHTML = rows
+    .map((row) => {
+      const enabledText = row.enabled ? "启用" : "停用";
+      const channels = Array.isArray(row.channels) ? row.channels.join("/") : "system";
+      const threshold = formatAlertThreshold(row.rule_type, row.threshold);
+      return `<li data-alert-id="${row.id}">
+        #${row.id} · ${row.name} · ${prettifyAlertType(row.rule_type)} ${threshold}
+        · 冷却 ${row.cooldown_minutes}m · ${channels} · ${enabledText}
+        <button data-action="toggle" data-id="${row.id}" data-enabled="${row.enabled}">${row.enabled ? "停用" : "启用"}</button>
+        <button data-action="delete" data-id="${row.id}">删除</button>
+      </li>`;
+    })
+    .join("");
+}
+
+function renderAlertDeliveryList(items) {
+  const listEl = getEl("alert-delivery-list");
+  if (!listEl) return;
+
+  const rows = Array.isArray(items) ? items : [];
+  if (!rows.length) {
+    listEl.innerHTML = "<li>暂无发送日志</li>";
+    return;
+  }
+
+  listEl.innerHTML = rows
+    .map((row) => {
+      const createdAt = row.created_at ? new Date(row.created_at).toLocaleString() : "--";
+      const statusClass = row.status === "success" ? "delivery-success" : "delivery-failed";
+      const errorText = row.error_message ? ` · ${row.error_message}` : "";
+      return `<li class="${statusClass}">
+        ${createdAt} · ${row.channel} · ${row.status} · #${row.rule_name}
+        · attempt ${row.attempt}/${row.max_attempts}${errorText}
+      </li>`;
+    })
+    .join("");
+}
+
+async function loadAlertDeliveries(signal) {
+  const stateEl = getEl("alert-delivery-state");
+  const channelEl = getEl("alert-delivery-channel");
+  const statusEl = getEl("alert-delivery-status-filter");
+  const limitEl = getEl("alert-delivery-limit");
+
+  const channel = channelEl?.value?.trim() || "";
+  const status = statusEl?.value?.trim() || "";
+  const limitRaw = Number(limitEl?.value || 30);
+  const limit = Number.isFinite(limitRaw) ? Math.min(200, Math.max(1, limitRaw)) : 30;
+
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  if (channel) params.set("channel", channel);
+  if (status) params.set("status", status);
+
+  try {
+    const payload = await fetchJSON(`/api/alerts/deliveries?${params.toString()}`, signal);
+    renderAlertDeliveryList(payload.items || []);
+    if (stateEl) {
+      stateEl.textContent = `已加载 ${Array.isArray(payload.items) ? payload.items.length : 0} 条发送记录`;
+    }
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    renderAlertDeliveryList([]);
+    if (stateEl) {
+      stateEl.textContent = "加载发送日志失败";
+    }
+  }
+}
+
+function updateMacroCorrelation(panelData) {
+  const domesticEl = getEl("macro-domestic-price");
+  const globalEl = getEl("macro-global-price");
+  const premiumEl = getEl("macro-premium");
+  const corrEl = getEl("macro-corr");
+  const usdCloseEl = getEl("macro-usd-close");
+  const usdChangeEl = getEl("macro-usd-change");
+  const hintEl = getEl("macro-hint");
+
+  if (
+    !domesticEl ||
+    !globalEl ||
+    !premiumEl ||
+    !corrEl ||
+    !usdCloseEl ||
+    !usdChangeEl ||
+    !hintEl
+  ) {
+    return;
+  }
+
+  if (!panelData) {
+    domesticEl.textContent = "--";
+    globalEl.textContent = "--";
+    premiumEl.textContent = "--";
+    corrEl.textContent = "--";
+    usdCloseEl.textContent = "--";
+    usdChangeEl.textContent = "--";
+    hintEl.textContent = "宏观关联数据暂不可用";
+    return;
+  }
+
+  domesticEl.textContent = formatPrice(panelData.domestic_latest_cny_per_gram);
+  globalEl.textContent = formatPrice(panelData.global_latest_cny_per_gram);
+  premiumEl.textContent =
+    panelData.premium_cny_per_gram == null
+      ? "--"
+      : `${formatSignedNumber(panelData.premium_cny_per_gram, 2)} (${formatPctCompact(panelData.premium_pct)})`;
+  corrEl.textContent =
+    panelData.domestic_global_corr == null ? "--" : Number(panelData.domestic_global_corr).toFixed(3);
+  usdCloseEl.textContent =
+    panelData.usd_proxy?.close == null ? "--" : Number(panelData.usd_proxy.close).toFixed(4);
+  usdChangeEl.textContent = formatPctCompact(panelData.usd_proxy?.change_pct);
+  hintEl.textContent = panelData.macro_hint || "暂无宏观提示";
+}
+
+function prettifyAlignment(alignment) {
+  const mapping = {
+    bullish_aligned: "偏多共振",
+    bearish_aligned: "偏空共振",
+    mixed: "分歧震荡",
+    insufficient_data: "样本不足",
+  };
+  return mapping[alignment] || alignment || "--";
+}
+
+function updateMultiTimeframe(panelData) {
+  const alignmentEl = getEl("timeframe-alignment");
+  const scoreEl = getEl("timeframe-score");
+  const listEl = getEl("timeframe-list");
+  const summaryEl = getEl("timeframe-summary");
+  if (!alignmentEl || !scoreEl || !listEl || !summaryEl) return;
+
+  if (!panelData) {
+    alignmentEl.textContent = "--";
+    scoreEl.textContent = "--";
+    listEl.innerHTML = "<li>暂无多周期数据</li>";
+    summaryEl.textContent = "等待多周期分析";
+    return;
+  }
+
+  alignmentEl.textContent = prettifyAlignment(panelData.alignment);
+  scoreEl.textContent =
+    panelData.alignment_score == null ? "--" : Number(panelData.alignment_score).toFixed(3);
+  summaryEl.textContent = panelData.summary || "暂无多周期提示";
+
+  const rows = Array.isArray(panelData.frames) ? panelData.frames : [];
+  if (!rows.length) {
+    listEl.innerHTML = "<li>暂无多周期数据</li>";
+    return;
+  }
+
+  listEl.innerHTML = rows
+    .map((row) => {
+      return `<li>${row.window_days}天 · ${row.trend} · 收益 ${formatPctCompact(
+        row.return_pct
+      )} · 波动 ${formatPctCompact(row.volatility_pct)}</li>`;
+    })
+    .join("");
+}
+
+function updateForecast(panelData) {
+  const currentEl = getEl("forecast-current");
+  const expectedEl = getEl("forecast-expected");
+  const probEl = getEl("forecast-prob-up");
+  const rangeEl = getEl("forecast-range");
+  const scenarioEl = getEl("forecast-scenario");
+  if (!currentEl || !expectedEl || !probEl || !rangeEl || !scenarioEl) return;
+
+  if (!panelData) {
+    currentEl.textContent = "--";
+    expectedEl.textContent = "--";
+    probEl.textContent = "--";
+    rangeEl.textContent = "--";
+    scenarioEl.textContent = "等待预测情景分析";
+    return;
+  }
+
+  currentEl.textContent = formatPrice(panelData.current_price);
+  expectedEl.textContent = `${formatPrice(panelData.expected_price)} (${formatPctCompact(
+    panelData.expected_change_pct
+  )})`;
+  probEl.textContent = formatPctCompact(panelData.probability_up_pct);
+
+  const lower = panelData.forecast_range?.lower;
+  const upper = panelData.forecast_range?.upper;
+  rangeEl.textContent =
+    lower == null || upper == null ? "--" : `${formatPrice(lower)} ~ ${formatPrice(upper)}`;
+
+  const scenario = panelData.scenario || {};
+  scenarioEl.textContent = `P10/P50/P90: ${formatPrice(scenario.p10)} / ${formatPrice(
+    scenario.p50
+  )} / ${formatPrice(scenario.p90)}；+5%约需 ${scenario.days_to_gain_5pct ?? "--"} 天`;
+}
+
+function renderEntryPlan(planData) {
+  const summaryEl = getEl("entry-plan-summary");
+  const listEl = getEl("entry-plan-list");
+  if (!summaryEl || !listEl) return;
+
+  if (!planData) {
+    summaryEl.textContent = "等待生成入场计划";
+    listEl.innerHTML = "<li>暂无入场计划</li>";
+    return;
+  }
+
+  const summary = planData.summary || {};
+  summaryEl.textContent = `均价 ${formatPrice(summary.avg_entry_price)} · 止损 ${formatPrice(
+    summary.stop_loss_price
+  )} · 目标 ${formatPrice(summary.target_price)} · 盈亏比 ${summary.risk_reward_ratio ?? "--"}`;
+
+  const rows = Array.isArray(planData.plan) ? planData.plan : [];
+  if (!rows.length) {
+    listEl.innerHTML = "<li>暂无入场计划</li>";
+    return;
+  }
+
+  listEl.innerHTML = rows
+    .map((row) => {
+      const budget = row.budget_cny == null ? "" : ` · 预算 ¥${Number(row.budget_cny).toFixed(2)}`;
+      const qty = row.quantity_gram == null ? "" : ` · 约 ${Number(row.quantity_gram).toFixed(3)}g`;
+      return `<li>第${row.batch}批 · 买入价 ${formatPrice(row.buy_price)}${budget}${qty}</li>`;
+    })
+    .join("");
+}
+
+async function loadEntryPlan(signal) {
+  const budgetEl = getEl("entry-budget");
+  const batchesEl = getEl("entry-batches");
+  const stepEl = getEl("entry-step");
+  const targetEl = getEl("entry-target");
+
+  const params = new URLSearchParams();
+  const budget = Number(budgetEl?.value);
+  const batches = Number(batchesEl?.value || 3);
+  const step = Number(stepEl?.value || 2);
+  const target = Number(targetEl?.value || 5);
+
+  if (Number.isFinite(budget) && budget > 0) {
+    params.set("budget_cny", String(budget));
+  }
+  if (Number.isFinite(batches)) params.set("batches", String(batches));
+  if (Number.isFinite(step)) params.set("step_pct", String(step));
+  if (Number.isFinite(target)) params.set("target_profit_pct", String(target));
+
+  try {
+    const payload = await fetchJSON(`/api/analysis/entry-plan?${params.toString()}`, signal);
+    renderEntryPlan(payload.data || null);
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    renderEntryPlan(null);
+  }
+}
+
+async function loadCustomAlerts(signal) {
+  const statusEl = getEl("custom-alert-status");
+  try {
+    const payload = await fetchJSON("/api/alerts", signal);
+    renderCustomAlertList(payload.items || []);
+    if (statusEl) {
+      statusEl.textContent = `已加载 ${Array.isArray(payload.items) ? payload.items.length : 0} 条预警规则`;
+    }
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    renderCustomAlertList([]);
+    if (statusEl) {
+      statusEl.textContent = "加载预警规则失败";
+    }
+  }
+}
+
+async function createCustomAlertRule() {
+  const statusEl = getEl("custom-alert-status");
+  const nameEl = getEl("alert-name");
+  const typeEl = getEl("alert-type");
+  const thresholdEl = getEl("alert-threshold");
+  const cooldownEl = getEl("alert-cooldown");
+  const channelsEl = getEl("alert-channels");
+
+  if (!nameEl || !typeEl || !thresholdEl || !cooldownEl || !channelsEl) return;
+
+  const name = nameEl.value.trim();
+  const ruleType = typeEl.value;
+  const threshold = Number(thresholdEl.value);
+  const cooldown = Number(cooldownEl.value || 60);
+  const channels = channelsEl.value.trim() || "system";
+
+  if (!name || !Number.isFinite(threshold)) {
+    if (statusEl) statusEl.textContent = "请填写合法规则名和阈值";
+    return;
+  }
+
+  const url = `/api/alerts?name=${encodeURIComponent(name)}&rule_type=${encodeURIComponent(
+    ruleType
+  )}&threshold=${encodeURIComponent(String(threshold))}&cooldown_minutes=${encodeURIComponent(
+    String(cooldown)
+  )}&channels=${encodeURIComponent(channels)}&enabled=true`;
+
+  try {
+    const response = await fetch(url, { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload?.error?.message || "创建失败");
+    }
+    if (statusEl) statusEl.textContent = `已创建规则 #${payload.data.id}`;
+    nameEl.value = "";
+    thresholdEl.value = "";
+    await loadCustomAlerts();
+  } catch (error) {
+    if (statusEl) statusEl.textContent = `创建失败: ${error?.message || error}`;
+  }
+}
+
+async function toggleCustomAlertRule(ruleId, enabled) {
+  const statusEl = getEl("custom-alert-status");
+  try {
+    const response = await fetch(`/api/alerts/${ruleId}?enabled=${enabled}`, { method: "PATCH" });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload?.error?.message || "更新失败");
+    }
+    if (statusEl) statusEl.textContent = `规则 #${ruleId} 已${enabled ? "启用" : "停用"}`;
+    await loadCustomAlerts();
+  } catch (error) {
+    if (statusEl) statusEl.textContent = `更新失败: ${error?.message || error}`;
+  }
+}
+
+async function deleteCustomAlertRule(ruleId) {
+  const statusEl = getEl("custom-alert-status");
+  try {
+    const response = await fetch(`/api/alerts/${ruleId}`, { method: "DELETE" });
+    const payload = await response.json();
+    if (!response.ok || !payload.success) {
+      throw new Error(payload?.error?.message || "删除失败");
+    }
+    if (statusEl) statusEl.textContent = `规则 #${ruleId} 已删除`;
+    await loadCustomAlerts();
+  } catch (error) {
+    if (statusEl) statusEl.textContent = `删除失败: ${error?.message || error}`;
+  }
+}
+
+function bindCustomAlertPanel() {
+  const form = getEl("custom-alert-form");
+  if (form) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await createCustomAlertRule();
+    });
+  }
+
+  const list = getEl("custom-alert-list");
+  if (list) {
+    list.addEventListener("click", async (event) => {
+      const button = event.target;
+      if (!(button instanceof HTMLButtonElement)) return;
+      const action = button.dataset.action;
+      const id = Number(button.dataset.id);
+      if (!Number.isFinite(id)) return;
+
+      if (action === "toggle") {
+        const currentEnabled = button.dataset.enabled === "true";
+        await toggleCustomAlertRule(id, !currentEnabled);
+      } else if (action === "delete") {
+        await deleteCustomAlertRule(id);
+      }
+    });
+  }
+
+  const deliveryRefresh = getEl("alert-delivery-refresh");
+  if (deliveryRefresh) {
+    deliveryRefresh.addEventListener("click", async () => {
+      await loadAlertDeliveries();
+    });
+  }
+
+  const deliveryFilterChannel = getEl("alert-delivery-channel");
+  const deliveryFilterStatus = getEl("alert-delivery-status-filter");
+  if (deliveryFilterChannel) {
+    deliveryFilterChannel.addEventListener("change", async () => {
+      await loadAlertDeliveries();
+    });
+  }
+  if (deliveryFilterStatus) {
+    deliveryFilterStatus.addEventListener("change", async () => {
+      await loadAlertDeliveries();
+    });
+  }
+
+  const entryPlanForm = getEl("entry-plan-form");
+  if (entryPlanForm) {
+    entryPlanForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await loadEntryPlan();
+    });
   }
 }
 
@@ -1000,7 +1607,36 @@ function showSignalAlert(data) {
   }
 }
 
-function buildChart(labels, prices, ma30, bbUpper, bbLower, signalPoints) {
+function buildSupportResistanceDatasets(length, levelLines) {
+  const lines = Array.isArray(levelLines) ? levelLines : [];
+  const colorMap = {
+    support: "rgba(47, 214, 198, 0.72)",
+    resistance: "rgba(255, 143, 132, 0.74)",
+    round: "rgba(242, 178, 76, 0.58)",
+  };
+  const dashMap = {
+    support: [6, 4],
+    resistance: [6, 4],
+    round: [2, 4],
+  };
+
+  return lines.map((line) => {
+    const price = Number(line?.price);
+    const kind = line?.kind || "round";
+    return {
+      label: line?.label || kind,
+      data: Array.from({ length }, () => (Number.isFinite(price) ? price : null)),
+      borderColor: colorMap[kind] || colorMap.round,
+      borderDash: dashMap[kind] || dashMap.round,
+      borderWidth: 1,
+      pointRadius: 0,
+      tension: 0,
+      order: 5,
+    };
+  });
+}
+
+function buildChart(labels, prices, ma30, bbUpper, bbLower, signalPoints, levelLines = []) {
   const canvas = getEl("priceChart");
   if (!canvas || typeof Chart === "undefined") {
     return;
@@ -1010,6 +1646,8 @@ function buildChart(labels, prices, ma30, bbUpper, bbLower, signalPoints) {
     state.chart.destroy();
     state.chart = null;
   }
+
+  const srDatasets = buildSupportResistanceDatasets(labels.length, levelLines);
 
   state.chart = new Chart(canvas, {
     type: "line",
@@ -1024,6 +1662,7 @@ function buildChart(labels, prices, ma30, bbUpper, bbLower, signalPoints) {
           borderWidth: 2.2,
           pointRadius: 0,
           tension: 0.22,
+          order: 1,
         },
         {
           label: "MA30",
@@ -1032,6 +1671,7 @@ function buildChart(labels, prices, ma30, bbUpper, bbLower, signalPoints) {
           borderWidth: 1.6,
           pointRadius: 0,
           tension: 0.22,
+          order: 2,
         },
         {
           label: "布林上轨",
@@ -1041,6 +1681,7 @@ function buildChart(labels, prices, ma30, bbUpper, bbLower, signalPoints) {
           borderWidth: 1,
           pointRadius: 0,
           tension: 0.2,
+          order: 3,
         },
         {
           label: "布林下轨",
@@ -1050,7 +1691,9 @@ function buildChart(labels, prices, ma30, bbUpper, bbLower, signalPoints) {
           borderWidth: 1,
           pointRadius: 0,
           tension: 0.2,
+          order: 3,
         },
+        ...srDatasets,
         {
           type: "scatter",
           label: "信号",
@@ -1058,6 +1701,7 @@ function buildChart(labels, prices, ma30, bbUpper, bbLower, signalPoints) {
           borderColor: "#2fd6c6",
           backgroundColor: "#2fd6c6",
           pointRadius: 4,
+          order: 10,
         },
       ],
     },
@@ -1140,13 +1784,40 @@ async function loadDashboard() {
   updateStatus("同步中", "status-pending");
 
   try {
-    const [current, history, indicators, signals, advice, buySignal] = await Promise.all([
+    const [
+      current,
+      history,
+      indicators,
+      signals,
+      advice,
+      buySignal,
+      signalPerformance,
+      supportResistance,
+      macroCorrelation,
+      multiTimeframe,
+      forecast,
+    ] = await Promise.all([
       fetchJSON("/api/price/current", signal),
       fetchJSON(`/api/price/history?days=${range.days}&interval=${range.interval}`, signal),
       fetchJSON("/api/analysis/indicators", signal),
       fetchJSON(`/api/analysis/signals?days=${range.days}`, signal),
       fetchJSON("/api/analysis/advice", signal).catch(() => null),
       fetchJSON("/api/analysis/buy-signal", signal).catch(() => null),
+      fetchJSON(`/api/analysis/signal-performance?window_days=${Math.max(range.days, 90)}`, signal).catch(
+        () => null
+      ),
+      fetchJSON(`/api/analysis/support-resistance?window_days=${Math.max(range.days, 90)}`, signal).catch(
+        () => null
+      ),
+      fetchJSON(`/api/analysis/macro-correlation?window_days=${Math.max(range.days, 120)}`, signal).catch(
+        () => null
+      ),
+      fetchJSON(`/api/analysis/multi-timeframe?windows=1,7,30&lookback_days=${Math.max(range.days, 120)}`, signal).catch(
+        () => null
+      ),
+      fetchJSON(`/api/analysis/forecast?lookback_days=${Math.max(range.days, 120)}&horizon_days=7`, signal).catch(
+        () => null
+      ),
     ]);
 
     if (requestId !== state.activeRequestId) {
@@ -1162,6 +1833,14 @@ async function loadDashboard() {
     });
 
     const items = Array.isArray(history?.items) ? history.items : [];
+    updateSignalPerformance(signalPerformance?.data || null);
+    updateSupportResistance(supportResistance?.data || null);
+    updateMacroCorrelation(macroCorrelation?.data || null);
+    updateMultiTimeframe(multiTimeframe?.data || null);
+    updateForecast(forecast?.data || null);
+    await loadCustomAlerts(signal);
+    await loadAlertDeliveries(signal);
+    await loadEntryPlan(signal);
     state.lineChartContext = buildLineChartContext(items, range.interval);
     updateChartDiagnostics();
     const useTime = range.interval.includes("m") || range.interval.includes("h");
@@ -1189,7 +1868,15 @@ async function loadDashboard() {
             : new Date(signalItem.timestamp).toLocaleDateString(),
           y: signalItem.price_cny_per_gram,
         }));
-      buildChart(labels, prices, ma30, bands.upper, bands.lower, signalPoints);
+      buildChart(
+        labels,
+        prices,
+        ma30,
+        bands.upper,
+        bands.lower,
+        signalPoints,
+        state.supportResistanceLines
+      );
     }
 
     const change = calculate24hChange(items, latestPrice);
@@ -1225,6 +1912,12 @@ async function loadDashboard() {
     if (error?.name === "AbortError") {
       return;
     }
+    updateSignalPerformance(null);
+    updateSupportResistance(null);
+    updateMacroCorrelation(null);
+    updateMultiTimeframe(null);
+    updateForecast(null);
+    renderEntryPlan(null);
     updateStatus("离线", "offline");
     console.error(error);
   } finally {
@@ -1264,6 +1957,7 @@ function startAutoRefresh() {
 }
 
 function initDashboard() {
+  bindCustomAlertPanel();
   bindRangeSwitch();
   loadDashboard();
   startAutoRefresh();

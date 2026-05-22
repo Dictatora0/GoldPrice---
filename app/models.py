@@ -75,3 +75,45 @@ class AdviceSnapshot(Base):
     __table_args__ = (
         Index('idx_advice_snapshot_timestamp', 'snapshot_timestamp'),
     )
+
+
+class CustomAlertRule(Base):
+    __tablename__ = "custom_alert_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(120), nullable=False)
+    rule_type = Column(String(40), nullable=False)
+    threshold = Column(Float, nullable=False)
+    channels = Column(Text, nullable=False, default='["system"]')
+    enabled = Column(Boolean, nullable=False, default=True)
+    cooldown_minutes = Column(Integer, nullable=False, default=60)
+    last_triggered_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+    __table_args__ = (
+        Index("idx_custom_alert_enabled_type", "enabled", "rule_type"),
+        Index("idx_custom_alert_last_triggered", "last_triggered_at"),
+    )
+
+
+class NotificationDeliveryLog(Base):
+    __tablename__ = "notification_delivery_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    rule_name = Column(String(120), nullable=False)
+    channel = Column(String(40), nullable=False)
+    level = Column(String(20), nullable=False)
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False)
+    attempt = Column(Integer, nullable=False, default=1)
+    max_attempts = Column(Integer, nullable=False, default=1)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    __table_args__ = (
+        Index("idx_delivery_log_created", "created_at"),
+        Index("idx_delivery_log_rule_channel", "rule_name", "channel"),
+        Index("idx_delivery_log_status", "status"),
+    )

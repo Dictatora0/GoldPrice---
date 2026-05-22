@@ -1,5 +1,7 @@
-from pydantic_settings import BaseSettings
 from typing import Optional
+
+from pydantic import Field, model_validator
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -11,6 +13,7 @@ class Settings(BaseSettings):
     price_guard_reference_window: int = 120
     price_guard_min_reference_points: int = 5
     price_guard_relative_deviation_threshold: float = 0.2
+    price_guard_reference_max_age_hours: int = 12
     sina_symbol: str = "hf_AUTD"
     eastmoney_fs: str = "m:118"
     eastmoney_code: str = "AU9999"
@@ -47,7 +50,7 @@ class Settings(BaseSettings):
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_db: int = 0
-    redis_password: Optional[str] = None
+    redis_password: Optional[str] = Field(default=None)
     redis_max_connections: int = 50
 
     # PostgreSQL配置
@@ -55,7 +58,7 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     postgres_db: str = "goldprice_logs"
     postgres_user: str = "goldprice"
-    postgres_password: str = ""
+    postgres_password: Optional[str] = Field(default=None)
 
     # 缓存配置
     cache_price_ttl: int = 120
@@ -80,15 +83,26 @@ class Settings(BaseSettings):
     alert_webhook_url: Optional[str] = None
     alert_slack_webhook: Optional[str] = None
     alert_cooldown_minutes: int = 30
+    alert_email_url: Optional[str] = None
+    alert_wechat_url: Optional[str] = None
+    alert_webhook_max_retries: int = 1
+    alert_email_max_retries: int = 2
+    alert_wechat_max_retries: int = 2
 
     # 日志配置
     log_level: str = "INFO"
-    log_to_postgres: bool = True
+    log_to_postgres: bool = False
     log_retention_days: int = 30
 
     class Config:
         env_file = ".env"
         case_sensitive = False
+
+    @model_validator(mode="after")
+    def validate_sensitive_settings(self):
+        if self.log_to_postgres and not self.postgres_password:
+            raise ValueError("POSTGRES_PASSWORD is required when LOG_TO_POSTGRES is enabled")
+        return self
 
 
 settings = Settings()

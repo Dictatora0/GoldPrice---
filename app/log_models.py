@@ -7,6 +7,9 @@ from datetime import datetime
 from typing import Optional
 
 from config import settings
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 LogBase = declarative_base()
 
@@ -40,7 +43,7 @@ def get_log_engine():
         engine = create_engine(database_url, pool_pre_ping=True)
         return engine
     except Exception as e:
-        print(f"Failed to connect to PostgreSQL for logging: {e}")
+        logger.warning("Failed to connect to PostgreSQL for logging: %s", e)
         return None
 
 
@@ -50,9 +53,9 @@ def init_log_db():
     if engine:
         try:
             LogBase.metadata.create_all(engine)
-            print("Log database initialized")
+            logger.info("Log database initialized")
         except Exception as e:
-            print(f"Failed to initialize log database: {e}")
+            logger.warning("Failed to initialize log database: %s", e)
 
 
 def get_log_session():
@@ -96,5 +99,4 @@ class PostgreSQLLogHandler(logging.Handler):
             session.commit()
             session.close()
         except Exception:
-            # 不要让日志写入失败影响主流程
-            pass
+            logger.exception("Failed to write log entry to PostgreSQL")

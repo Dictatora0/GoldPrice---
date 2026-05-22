@@ -52,12 +52,12 @@ def test_analysis_cache_uses_valid_timestamp_source_and_json_payload():
     assert "PriceHistory.timestamp" in advisor
     assert "PriceHistory.timestamp" in signals
 
-    assert "json.loads(cached)" in advisor
-    assert "json.loads(cached)" in signals
-    assert "json.loads(cached)" in indicators
-    assert "json.dumps(result, default=str)" in advisor
-    assert "json.dumps(result, default=str)" in signals
-    assert "json.dumps(result, default=str)" in indicators
+    assert "get_json_cache(cache_key)" in advisor
+    assert "get_json_cache(cache_key)" in signals
+    assert "get_json_cache(cache_key)" in indicators
+    assert "set_json_cache(cache_key, result" in advisor
+    assert "set_json_cache(cache_key, result" in signals
+    assert "set_json_cache(cache_key, result" in indicators
 
 
 def test_health_and_alerts_do_not_misuse_asyncio_run_for_sync_ping():

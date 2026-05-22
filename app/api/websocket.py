@@ -1,8 +1,9 @@
+import asyncio
 from typing import List
 from fastapi import WebSocket, WebSocketDisconnect, APIRouter
-import logging
+from app.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(tags=["websocket"])
 
@@ -34,14 +35,19 @@ class ConnectionManager:
 
     async def broadcast(self, message: dict):
         """广播消息到所有连接的客户端"""
-        dead_connections = []
+        if not self.active_connections:
+            return
 
-        for connection in self.active_connections:
+        async def _send(connection: WebSocket):
             try:
                 await connection.send_json(message)
+                return True, connection
             except Exception as e:
                 logger.error(f"Failed to send message to client: {e}")
-                dead_connections.append(connection)
+                return False, connection
+
+        results = await asyncio.gather(*(_send(connection) for connection in list(self.active_connections)))
+        dead_connections = [connection for ok, connection in results if not ok]
 
         # 清理失败的连接
         for conn in dead_connections:
@@ -49,6 +55,7 @@ class ConnectionManager:
 
         if dead_connections:
             logger.info(f"Cleaned up {len(dead_connections)} dead connections")
+        logger.info(f"Broadcast completed to {len(self.active_connections)} active connections")
 
 
 # 全局连接管理器实例

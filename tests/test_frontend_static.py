@@ -24,10 +24,11 @@ def test_dashboard_scripts_use_deferred_loading():
     assert all("defer" in attrs for attrs in script_tags)
 
 
-def test_lightweight_charts_script_uses_pinned_jsdelivr_url():
+def test_lightweight_charts_script_uses_local_vendor_url():
     html = INDEX_HTML.read_text(encoding="utf-8")
 
-    assert "cdn.jsdelivr.net/npm/lightweight-charts@" in html
+    assert "/static/vendor/lightweight-charts.standalone.production.js" in html
+    assert "cdn.jsdelivr.net/npm/lightweight-charts@" not in html
     assert "unpkg.com/lightweight-charts" not in html
 
 
@@ -205,6 +206,83 @@ def test_dashboard_has_signal_debug_slots():
     assert 'id="debug-reasons"' in html
 
 
+def test_dashboard_has_signal_performance_and_sr_slots():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert 'id="backtest-window"' in html
+    assert 'id="backtest-signal-count"' in html
+    assert 'id="backtest-evaluated-count"' in html
+    assert 'id="backtest-avg-return"' in html
+    assert 'id="backtest-win-rate"' in html
+    assert 'id="backtest-max-drawdown"' in html
+    assert 'id="backtest-highscore"' in html
+    assert 'id="backtest-correlation"' in html
+    assert 'id="sr-current-price"' in html
+    assert 'id="sr-nearest-support"' in html
+    assert 'id="sr-nearest-resistance"' in html
+    assert 'id="sr-round-levels"' in html
+    assert 'id="sr-level-list"' in html
+    assert 'id="custom-alert-form"' in html
+    assert 'id="custom-alert-list"' in html
+    assert 'id="custom-alert-status"' in html
+    assert 'id="alert-delivery-list"' in html
+    assert 'id="alert-delivery-state"' in html
+    assert 'id="macro-domestic-price"' in html
+    assert 'id="macro-global-price"' in html
+    assert 'id="macro-premium"' in html
+    assert 'id="macro-corr"' in html
+    assert 'id="macro-usd-close"' in html
+    assert 'id="macro-usd-change"' in html
+    assert 'id="macro-hint"' in html
+    assert 'id="timeframe-alignment"' in html
+    assert 'id="timeframe-score"' in html
+    assert 'id="timeframe-list"' in html
+    assert 'id="timeframe-summary"' in html
+    assert 'id="forecast-current"' in html
+    assert 'id="forecast-expected"' in html
+    assert 'id="forecast-prob-up"' in html
+    assert 'id="forecast-range"' in html
+    assert 'id="forecast-scenario"' in html
+    assert 'id="entry-plan-form"' in html
+    assert 'id="entry-plan-summary"' in html
+    assert 'id="entry-plan-list"' in html
+
+
+def test_dashboard_chart_script_renders_performance_and_sr_panels():
+    script = CHART_JS.read_text(encoding="utf-8")
+
+    assert "function updateSignalPerformance(performance)" in script
+    assert "function updateSupportResistance(levelData)" in script
+    assert "function buildSupportResistanceDatasets(length, levelLines)" in script
+    assert 'fetchJSON(`/api/analysis/signal-performance?window_days=${Math.max(range.days, 90)}`' in script
+    assert 'fetchJSON(`/api/analysis/support-resistance?window_days=${Math.max(range.days, 90)}`' in script
+    assert "state.supportResistanceLines = Array.isArray(levelData.plot_lines)" in script
+    assert "function loadCustomAlerts(signal)" in script
+    assert 'fetchJSON("/api/alerts", signal)' in script
+    assert "function bindCustomAlertPanel()" in script
+    assert "function createCustomAlertRule()" in script
+    assert "function loadAlertDeliveries(signal)" in script
+    assert 'fetchJSON(`/api/alerts/deliveries?' in script
+    assert "function updateMacroCorrelation(panelData)" in script
+    assert 'fetchJSON(`/api/analysis/macro-correlation?window_days=${Math.max(range.days, 120)}`' in script
+    assert "function updateMultiTimeframe(panelData)" in script
+    assert "function updateForecast(panelData)" in script
+    assert "function renderEntryPlan(planData)" in script
+    assert "function loadEntryPlan(signal)" in script
+    assert 'fetchJSON(`/api/analysis/multi-timeframe?windows=1,7,30&lookback_days=${Math.max(range.days, 120)}`' in script
+    assert 'fetchJSON(`/api/analysis/forecast?lookback_days=${Math.max(range.days, 120)}&horizon_days=7`' in script
+    assert 'fetchJSON(`/api/analysis/entry-plan?' in script
+
+
+def test_candlestick_supports_sr_price_lines_bridge():
+    script = CANDLESTICK_JS.read_text(encoding="utf-8")
+
+    assert "applySupportResistancePriceLines" in script
+    assert "clearSupportResistancePriceLines" in script
+    assert "createPriceLine" in script
+    assert "window.updateCandlestickSupportResistanceLines = (lines) => {" in script
+
+
 def test_dashboard_chart_script_renders_signal_debug_view():
     script = CHART_JS.read_text(encoding="utf-8")
 
@@ -242,3 +320,25 @@ def test_signal_debug_styles_define_panels_and_flag_lists():
     assert ".debug-flag" in css
     assert ".debug-factor-changes" in css
     assert ".debug-chart-detail-grid" in css
+
+
+def test_performance_and_sr_styles_are_defined():
+    css = STYLE_CSS.read_text(encoding="utf-8")
+
+    assert ".signal-performance" in css
+    assert ".sr-panel" in css
+    assert ".performance-overview" in css
+    assert ".metric-box" in css
+    assert ".performance-note" in css
+    assert ".sr-grid" in css
+    assert ".sr-item" in css
+    assert ".sr-item-support" in css
+    assert ".sr-item-resistance" in css
+    assert ".sr-item-round" in css
+    assert ".alert-delivery-panel" in css
+    assert ".alert-delivery-controls" in css
+    assert ".macro-correlation-panel" in css
+    assert ".timeframe-panel" in css
+    assert ".forecast-panel" in css
+    assert ".entry-plan-panel" in css
+    assert ".entry-plan-form" in css

@@ -15,6 +15,7 @@ from app.price_regime import filter_current_regime
 from app.price_regime import build_regime_meta
 from app.models import PriceHistory, AdviceSnapshot
 from app.trading_thresholds import TradingThresholds
+from app.cache import build_cache_key, get_json_cache, set_json_cache
 
 
 class MarketAdvisor:
@@ -978,7 +979,6 @@ class MarketAdvisor:
 
     def analyze_cached(self) -> Optional[Dict]:
         """综合分析并生成建议(带缓存)"""
-        from app.cache import cache_manager
         from config import settings
 
         with get_db_session(read_only=True) as session:
@@ -989,27 +989,16 @@ class MarketAdvisor:
             if not latest:
                 return self.analyze()
 
-            cache_key = f"analysis:{self.CACHE_SCHEMA_VERSION}:{latest[0].isoformat()}"
+            cache_key = build_cache_key("analysis", self.CACHE_SCHEMA_VERSION, latest[0].isoformat())
 
-        cached = cache_manager.get(cache_key)
-        if cached:
-            if isinstance(cached, str):
-                try:
-                    cached = json.loads(cached)
-                except json.JSONDecodeError:
-                    pass
-            if isinstance(cached, dict):
-                return self._finalize_advice_payload(cached, latest[0])
-            return cached
+        cached = get_json_cache(cache_key)
+        if cached is not None:
+            return self._finalize_advice_payload(cached, latest[0])
 
         result = self.analyze(snapshot_timestamp=latest[0])
         if result is None:
             return None
 
-        cache_manager.set(
-            cache_key,
-            json.dumps(result, default=str),
-            ttl=settings.cache_analysis_ttl,
-        )
+        set_json_cache(cache_key, result, settings.cache_analysis_ttl)
 
         return result

@@ -135,6 +135,44 @@ def test_save_collection_accepts_price_within_recent_regime():
     assert history is not None
 
 
+def test_save_collection_skips_price_guard_when_reference_is_stale(monkeypatch):
+    monkeypatch.setattr("app.scheduler.settings.price_guard_reference_max_age_hours", 1)
+    stale_base = datetime.now() - timedelta(hours=30)
+
+    session = get_session()
+    try:
+        for idx in range(6):
+            session.add(
+                PriceHistory(
+                    timestamp=stale_base + timedelta(minutes=idx * 3),
+                    price_cny_per_gram=1040.0 + idx * 0.2,
+                    source_count=1,
+                )
+            )
+        session.commit()
+    finally:
+        session.close()
+
+    data = {
+        "timestamp": datetime.now(),
+        "price_cny_per_gram": 546.0,
+        "sources": {"goldcn": 546.0},
+        "invalid_sources": {},
+    }
+
+    history_id = save_collection(data)
+
+    session = get_session()
+    try:
+        created = session.query(PriceHistory).filter_by(id=history_id).first()
+    finally:
+        session.close()
+
+    assert history_id is not None
+    assert created is not None
+    assert created.price_cny_per_gram == 546.0
+
+
 class FakeDetector:
     def __init__(self):
         self.marked = False

@@ -19,6 +19,7 @@ from app.notifiers.macos import MacOSNotifier
 from app.logging_config import get_logger
 from app.price_regime import filter_current_regime
 from app.signal_validation import decode_signal_indicators, is_complete_signal_payload
+from app.monitoring.runtime_state import runtime_state
 from config import settings
 
 logger = get_logger(__name__)
@@ -32,21 +33,40 @@ class SchedulerState:
 state = SchedulerState()
 
 
-def _get_recent_regime_reference_prices(session) -> list[float]:
+def _get_recent_regime_reference_prices(session) -> tuple[list[float], Optional[datetime]]:
     rows = (
-        session.query(PriceHistory.price_cny_per_gram)
+        session.query(PriceHistory.timestamp, PriceHistory.price_cny_per_gram)
         .order_by(PriceHistory.timestamp.desc())
         .limit(settings.price_guard_reference_window)
         .all()
     )
-    prices = [price for (price,) in reversed(rows)]
+    if not rows:
+        return [], None
+
+    latest_timestamp = rows[0][0]
+    prices = [price for _, price in reversed(rows)]
     if not prices:
-        return []
-    return filter_current_regime(prices, price_getter=lambda price: price)
+        return [], latest_timestamp
+    return filter_current_regime(prices, price_getter=lambda price: price), latest_timestamp
 
 
 def _is_collection_price_suspicious(session, price_cny_per_gram: float) -> tuple[bool, dict]:
-    reference_prices = _get_recent_regime_reference_prices(session)
+    reference_prices, latest_reference_timestamp = _get_recent_regime_reference_prices(session)
+    if latest_reference_timestamp is not None:
+        reference_age_hours = (
+            datetime.now() - latest_reference_timestamp
+        ).total_seconds() / 3600.0
+        if reference_age_hours > settings.price_guard_reference_max_age_hours:
+            logger.info(
+                "Skip price guard because reference data is stale (%.2fh > %sh)",
+                reference_age_hours,
+                settings.price_guard_reference_max_age_hours,
+            )
+            return False, {
+                "reason": "stale_reference",
+                "reference_age_hours": round(reference_age_hours, 2),
+            }
+
     if len(reference_prices) < settings.price_guard_min_reference_points:
         return False, {}
 
@@ -196,7 +216,7 @@ def cleanup_backfill_batch(
     deleted_signals = len(invalid_signal_ids)
     action = "preview" if dry_run else "cleanup"
     logger.info(
-        "Backfill {} complete: deleted_history={} deleted_signals={}",
+        "Backfill %s complete: deleted_history=%s deleted_signals=%s",
         action,
         deleted_history,
         deleted_signals,
@@ -265,39 +285,52 @@ def backup_database(backup_dir: Optional[str] = None) -> Optional[str]:
 
 
 async def collect_job(app=None):
+    runtime_state.mark_collection_started()
     manager = CollectorManager(timeout=settings.data_source_timeout)
-    data = await manager.collect_all()
-    if not data:
-        return
+    try:
+        data = await manager.collect_all()
+        if not data:
+            runtime_state.mark_collection_failure("collector returned empty data")
+            return
 
-    history_id = save_collection(data)
-    if history_id is None:
-        logger.warning("Skip analysis and broadcast because collection was rejected by price guard")
-        return
+        history_id = save_collection(data)
+        if history_id is None:
+            reason = "collection rejected by price guard"
+            runtime_state.mark_collection_rejected(reason)
+            logger.warning("Skip analysis and broadcast because %s", reason)
+            return
 
-    run_analysis(enable_notify=settings.enable_notification)
+        run_analysis(enable_notify=settings.enable_notification)
+        runtime_state.mark_collection_success()
 
-    # 广播价格更新到 WebSocket 客户端
-    if app and hasattr(app.state, 'ws_manager'):
-        try:
-            await app.state.ws_manager.broadcast({
-                "type": "price_update",
-                "data": {
-                    "timestamp": data["timestamp"].isoformat(),
-                    "price_cny_per_gram": data["price_cny_per_gram"],
-                    "source_count": len(data.get("sources", {}))
-                }
-            })
-        except Exception as e:
-            logger.error(f"Failed to broadcast price update: {e}")
+        # 广播价格更新到 WebSocket 客户端
+        if app and hasattr(app.state, 'ws_manager'):
+            try:
+                await app.state.ws_manager.broadcast({
+                    "type": "price_update",
+                    "data": {
+                        "timestamp": data["timestamp"].isoformat(),
+                        "price_cny_per_gram": data["price_cny_per_gram"],
+                        "source_count": len(data.get("sources", {}))
+                    }
+                })
+            except Exception as e:
+                logger.error(f"Failed to broadcast price update: {e}")
+    except Exception as exc:
+        runtime_state.mark_collection_failure(str(exc))
+        logger.exception("collect_job failed")
+        raise
 
 
 def start_scheduler(app=None):
     if AsyncIOScheduler is None:
-        logger.error("APScheduler not installed; scheduler not started")
+        message = "APScheduler not installed; scheduler not started"
+        logger.error(message)
+        runtime_state.set_scheduler_state(enabled=False, running=False, error=message)
         return
 
     if state.scheduler and state.scheduler.running:
+        runtime_state.set_scheduler_state(enabled=True, running=True)
         return
 
     scheduler = AsyncIOScheduler()
@@ -343,11 +376,15 @@ def start_scheduler(app=None):
 
     scheduler.start()
     state.scheduler = scheduler
+    runtime_state.set_scheduler_state(enabled=True, running=True)
     logger.info("Scheduler started")
 
 
 def shutdown_scheduler():
     if state.scheduler and state.scheduler.running:
         state.scheduler.shutdown(wait=False)
+        runtime_state.set_scheduler_state(enabled=True, running=False)
         logger.info("Scheduler stopped")
+    else:
+        runtime_state.set_scheduler_state(enabled=AsyncIOScheduler is not None, running=False)
     state.scheduler = None

@@ -13,6 +13,7 @@
     <link
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
+      crossorigin
     />
     <link rel="stylesheet" href="/static/css/style.css" />
   </head>
@@ -259,14 +260,213 @@
           </div>
           <ul class="signal-list" id="signal-list"></ul>
         </article>
+        <article class="card signal-performance reveal" style="--delay: 560ms">
+          <div class="card-header">
+            <span>信号回测表现</span>
+            <span class="muted" id="backtest-window">7天窗口</span>
+          </div>
+          <div class="performance-overview">
+            <div class="metric-box">
+              <p class="label">信号总数</p>
+              <p class="metric" id="backtest-signal-count">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">有效样本</p>
+              <p class="metric" id="backtest-evaluated-count">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">平均收益</p>
+              <p class="metric" id="backtest-avg-return">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">胜率</p>
+              <p class="metric" id="backtest-win-rate">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">最大回撤</p>
+              <p class="metric" id="backtest-max-drawdown">--</p>
+            </div>
+          </div>
+          <p class="performance-note" id="backtest-highscore">高分信号表现暂不可用</p>
+          <p class="performance-note" id="backtest-correlation">评分与收益相关性暂不可用</p>
+        </article>
+        <article class="card sr-panel reveal" style="--delay: 600ms">
+          <div class="card-header">
+            <span>支撑 / 阻力关键位</span>
+            <span class="muted">自动识别</span>
+          </div>
+          <div class="sr-grid">
+            <div class="sr-item">
+              <p class="label">当前价格</p>
+              <p class="metric" id="sr-current-price">--</p>
+            </div>
+            <div class="sr-item sr-item-support">
+              <p class="label">最近支撑</p>
+              <p class="metric" id="sr-nearest-support">等待分析</p>
+            </div>
+            <div class="sr-item sr-item-resistance">
+              <p class="label">最近阻力</p>
+              <p class="metric" id="sr-nearest-resistance">等待分析</p>
+            </div>
+            <div class="sr-item sr-item-round">
+              <p class="label">整数关口</p>
+              <p class="metric" id="sr-round-levels">等待分析</p>
+            </div>
+          </div>
+          <ul class="signal-list" id="sr-level-list">
+            <li>等待关键位分析</li>
+          </ul>
+        </article>
+        <article class="card custom-alerts-panel reveal" style="--delay: 640ms">
+          <div class="card-header">
+            <span>自定义预警</span>
+            <span class="muted">价格 / RSI / 日波动</span>
+          </div>
+          <form id="custom-alert-form" class="custom-alert-form">
+            <input id="alert-name" type="text" placeholder="规则名，如 低吸区 580" required />
+            <select id="alert-type">
+              <option value="price_below">价格跌破</option>
+              <option value="price_above">价格突破</option>
+              <option value="rsi_below">RSI 超卖</option>
+              <option value="rsi_above">RSI 超买</option>
+              <option value="daily_change_abs_gte">单日波动幅度</option>
+            </select>
+            <input id="alert-threshold" type="number" step="0.01" placeholder="阈值" required />
+            <input id="alert-cooldown" type="number" min="1" max="1440" value="60" placeholder="冷却分钟" />
+            <input id="alert-channels" type="text" value="system,webhook" placeholder="system,webhook,email,wechat" />
+            <button type="submit">新增预警</button>
+          </form>
+          <p class="performance-note" id="custom-alert-status">等待加载预警规则</p>
+          <ul class="signal-list" id="custom-alert-list">
+            <li>暂无自定义预警</li>
+          </ul>
+        </article>
+        <article class="card alert-delivery-panel reveal" style="--delay: 680ms">
+          <div class="card-header">
+            <span>预警发送日志</span>
+            <span class="muted">email / wechat / system</span>
+          </div>
+          <div class="alert-delivery-controls">
+            <select id="alert-delivery-channel">
+              <option value="">全部通道</option>
+              <option value="system">system</option>
+              <option value="email">email</option>
+              <option value="wechat">wechat</option>
+              <option value="webhook">webhook</option>
+            </select>
+            <select id="alert-delivery-status-filter">
+              <option value="">全部状态</option>
+              <option value="success">success</option>
+              <option value="failed">failed</option>
+            </select>
+            <input id="alert-delivery-limit" type="number" min="1" max="200" value="30" />
+            <button id="alert-delivery-refresh" type="button">刷新日志</button>
+          </div>
+          <p class="performance-note" id="alert-delivery-state">等待加载发送日志</p>
+          <ul class="signal-list alert-delivery-list" id="alert-delivery-list">
+            <li>暂无发送日志</li>
+          </ul>
+        </article>
+        <article class="card macro-correlation-panel reveal" style="--delay: 720ms">
+          <div class="card-header">
+            <span>美元 / 国际金价关联</span>
+            <span class="muted">宏观决策</span>
+          </div>
+          <div class="performance-overview">
+            <div class="metric-box">
+              <p class="label">内盘价</p>
+              <p class="metric" id="macro-domestic-price">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">外盘换算价</p>
+              <p class="metric" id="macro-global-price">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">价差(内-外)</p>
+              <p class="metric" id="macro-premium">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">相关性</p>
+              <p class="metric" id="macro-corr">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">USDCNY</p>
+              <p class="metric" id="macro-usd-close">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">USD日变动</p>
+              <p class="metric" id="macro-usd-change">--</p>
+            </div>
+          </div>
+          <p class="performance-note" id="macro-hint">等待宏观关联分析</p>
+        </article>
+        <article class="card timeframe-panel reveal" style="--delay: 760ms">
+          <div class="card-header">
+            <span>多时间周期对比</span>
+            <span class="muted">精准入场</span>
+          </div>
+          <div class="performance-overview">
+            <div class="metric-box">
+              <p class="label">共振方向</p>
+              <p class="metric" id="timeframe-alignment">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">共振分数</p>
+              <p class="metric" id="timeframe-score">--</p>
+            </div>
+          </div>
+          <ul class="signal-list" id="timeframe-list">
+            <li>等待多周期数据</li>
+          </ul>
+          <p class="performance-note" id="timeframe-summary">等待多周期分析</p>
+        </article>
+        <article class="card forecast-panel reveal" style="--delay: 800ms">
+          <div class="card-header">
+            <span>价格预测</span>
+            <span class="muted">趋势预判</span>
+          </div>
+          <div class="performance-overview">
+            <div class="metric-box">
+              <p class="label">当前价</p>
+              <p class="metric" id="forecast-current">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">预期价(7天)</p>
+              <p class="metric" id="forecast-expected">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">上涨概率</p>
+              <p class="metric" id="forecast-prob-up">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">区间(90%)</p>
+              <p class="metric" id="forecast-range">--</p>
+            </div>
+          </div>
+          <p class="performance-note" id="forecast-scenario">等待预测情景分析</p>
+        </article>
+        <article class="card entry-plan-panel reveal" style="--delay: 840ms">
+          <div class="card-header">
+            <span>入场点位计算器</span>
+            <span class="muted">执行落地</span>
+          </div>
+          <form id="entry-plan-form" class="entry-plan-form">
+            <input id="entry-budget" type="number" step="100" min="0" placeholder="预算(元，可空)" />
+            <input id="entry-batches" type="number" min="1" max="10" value="3" placeholder="分批数" />
+            <input id="entry-step" type="number" min="0.2" max="20" step="0.1" value="2.0" placeholder="每批间隔%" />
+            <input id="entry-target" type="number" min="0.5" max="40" step="0.1" value="5.0" placeholder="目标收益%" />
+            <button type="submit">生成计划</button>
+          </form>
+          <p class="performance-note" id="entry-plan-summary">等待生成入场计划</p>
+          <ul class="signal-list" id="entry-plan-list">
+            <li>暂无入场计划</li>
+          </ul>
+        </article>
       </section>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1" defer></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.0.9/dist/lightweight-charts.standalone.production.js"
-      defer
-    ></script>
+    <script src="/static/vendor/chart.min.js" defer></script>
+    <script src="/static/vendor/lightweight-charts.standalone.production.js" defer></script>
     <script src="/static/js/websocket.js" defer></script>
     <script src="/static/js/candlestick.js" defer></script>
     <script src="/static/js/chart.js" defer></script>

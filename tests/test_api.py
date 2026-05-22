@@ -5,8 +5,8 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import init_db, get_db_session, engine
-from app.models import PriceHistory, AnalysisSignal
+from app.database import get_db_session, engine, init_db
+from app.models import PriceHistory, AnalysisSignal, PriceSource
 from config import settings
 from app.main import app
 
@@ -33,12 +33,11 @@ def build_valid_signal_indicators(price: float) -> dict:
 @pytest.fixture()
 def client():
     # Reset test database
+    engine.dispose()
     if os.path.exists(settings.database_path):
         os.remove(settings.database_path)
-    # Dispose of all connections before reinitializing
-    engine.dispose()
-    init_db()
     with TestClient(app) as test_client:
+        init_db()
         yield test_client
     # Clean up after test
     engine.dispose()
@@ -93,6 +92,13 @@ def test_health_endpoint_returns_ok(client):
     assert response.status_code == 200
     assert data["status"] == "ok"
     assert data["last_collection"] is not None
+    assert data["environment"] in {"development", "production"}
+    assert data["version"] == "2.0.0"
+    assert "runtime" in data
+    assert "scheduler" in data["runtime"]
+    assert "alerts_loop" in data["runtime"]
+    assert "details" in data["runtime"]
+    assert "collect" in data["runtime"]["details"]["scheduler"]
 
 
 def test_current_price_returns_latest(client):
@@ -213,6 +219,177 @@ def test_signals_endpoint_filters_malformed_signal_records(client):
     assert len(data["items"]) == 1
     assert data["items"][0]["price_cny_per_gram"] == 470.0
     assert data["items"][0]["indicators"]["evaluation_score"] == 72
+
+
+def test_signal_performance_endpoint_returns_backtest_stats(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    base_price = 500.0
+
+    prices = []
+    for offset in range(0, 50):
+        prices.append((now - timedelta(days=49 - offset), base_price + offset))
+    seed_price_history(prices)
+
+    signal_one_time = now - timedelta(days=30)
+    signal_two_time = now - timedelta(days=20)
+
+    signal_one_price = next(price for ts, price in prices if ts == signal_one_time)
+    signal_two_price = next(price for ts, price in prices if ts == signal_two_time)
+
+    seed_signal(
+        signal_one_time,
+        signal_one_price,
+        indicators={
+            "current_price": signal_one_price,
+            "evaluation_score": 85,
+            "evaluation_reasons": ["强势回撤后确认"],
+            "momentum": {"trend": "up"},
+            "timeframe_analysis": {"alignment": "bullish_aligned"},
+        },
+        notified=False,
+    )
+    seed_signal(
+        signal_two_time,
+        signal_two_price,
+        indicators={
+            "current_price": signal_two_price,
+            "evaluation_score": 72,
+            "evaluation_reasons": ["超卖修复"],
+            "momentum": {"trend": "neutral"},
+            "timeframe_analysis": {"alignment": "mixed"},
+        },
+        notified=False,
+    )
+
+    response = client.get(
+        "/api/analysis/signal-performance?window_days=90&horizons=3,7&limit=20&high_score_threshold=80"
+    )
+    data = response.json()["data"]
+
+    assert response.status_code == 200
+    assert data["signal_count"] == 2
+    assert data["evaluated_signal_count"] == 2
+    assert len(data["horizon_stats"]) == 2
+    by_horizon = {item["horizon_days"]: item for item in data["horizon_stats"]}
+    assert by_horizon[3]["sample_count"] == 2
+    assert by_horizon[3]["win_rate_pct"] == 100.0
+    assert by_horizon[7]["sample_count"] == 2
+    assert by_horizon[7]["avg_return_pct"] == pytest.approx(1.336, abs=0.01)
+    assert data["high_score_segment"]["sample_count"] == 1
+    assert data["high_score_segment"]["win_rate_pct"] == 100.0
+
+
+def test_support_resistance_endpoint_returns_key_levels(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    values = [
+        600.0,
+        590.0,
+        580.0,
+        570.0,
+        560.0,
+        570.0,
+        580.0,
+        590.0,
+        610.0,
+        620.0,
+        630.0,
+        620.0,
+        610.0,
+        600.0,
+        595.0,
+        602.0,
+    ]
+    points = [
+        (now - timedelta(days=len(values) - 1 - index), price)
+        for index, price in enumerate(values)
+    ]
+    seed_price_history(points)
+
+    response = client.get(
+        "/api/analysis/support-resistance?window_days=365&pivot_window=2&max_levels=3"
+    )
+    payload = response.json()["data"]
+
+    assert response.status_code == 200
+    assert payload["current_price"] == 602.0
+    assert payload["nearest_support"] is not None
+    assert payload["nearest_resistance"] is not None
+    assert payload["nearest_support"]["price"] == 560.0
+    assert payload["nearest_resistance"]["price"] == 630.0
+    assert payload["nearest_support"]["distance_pct"] == pytest.approx(6.977, abs=0.02)
+    assert payload["nearest_resistance"]["distance_pct"] == pytest.approx(4.651, abs=0.02)
+    assert payload["round_level_step"] == 10
+    assert any(line["kind"] == "support" for line in payload["plot_lines"])
+    assert any(line["kind"] == "resistance" for line in payload["plot_lines"])
+
+
+def test_macro_correlation_endpoint_returns_data_shape(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    with get_db_session() as session:
+        for idx in range(1, 16):
+            ts = now - timedelta(hours=16 - idx)
+            domestic = 600.0 + idx * 0.7
+            global_price = 596.0 + idx * 0.6
+            history = PriceHistory(
+                timestamp=ts,
+                price_cny_per_gram=domestic,
+                source_count=2,
+            )
+            session.add(history)
+            session.flush()
+            session.add(
+                PriceSource(
+                    price_history_id=history.id,
+                    source_name="global_gold",
+                    price_cny_per_gram=global_price,
+                    is_valid=True,
+                )
+            )
+
+    response = client.get("/api/analysis/macro-correlation?window_days=120&limit=500&include_live_fx=false")
+    payload = response.json()["data"]
+
+    assert response.status_code == 200
+    assert payload["sample_count"] >= 10
+    assert payload["domestic_latest_cny_per_gram"] is not None
+    assert payload["global_latest_cny_per_gram"] is not None
+    assert payload["premium_cny_per_gram"] is not None
+    assert payload["premium_pct"] is not None
+    assert payload["domestic_global_corr"] is not None
+    assert "macro_hint" in payload
+    assert isinstance(payload.get("recent_points"), list)
+
+
+def test_multi_timeframe_forecast_and_entry_plan_endpoints(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    points = []
+    for idx in range(1, 121):
+        ts = now - timedelta(days=121 - idx)
+        points.append((ts, 560.0 + idx * 0.8))
+    seed_price_history(points)
+
+    timeframe_resp = client.get("/api/analysis/multi-timeframe?windows=1,7,30&lookback_days=180")
+    timeframe_data = timeframe_resp.json()["data"]
+    assert timeframe_resp.status_code == 200
+    assert timeframe_data["alignment"] in {"bullish_aligned", "bearish_aligned", "mixed", "insufficient_data"}
+    assert isinstance(timeframe_data.get("frames"), list)
+
+    forecast_resp = client.get("/api/analysis/forecast?lookback_days=180&horizon_days=7&simulation_paths=300")
+    forecast_data = forecast_resp.json()["data"]
+    assert forecast_resp.status_code == 200
+    assert forecast_data["current_price"] is not None
+    assert forecast_data["expected_price"] is not None
+    assert forecast_data["forecast_range"]["lower"] is not None
+    assert forecast_data["forecast_range"]["upper"] is not None
+
+    entry_plan_resp = client.get(
+        "/api/analysis/entry-plan?budget_cny=6000&batches=3&step_pct=2.0&target_profit_pct=5.0"
+    )
+    entry_plan_data = entry_plan_resp.json()["data"]
+    assert entry_plan_resp.status_code == 200
+    assert entry_plan_data["current_price"] is not None
+    assert len(entry_plan_data["plan"]) == 3
+    assert entry_plan_data["summary"]["avg_entry_price"] is not None
 
 
 def test_metrics_endpoint(client):
@@ -362,3 +539,31 @@ def test_index_html_uses_cache_busted_local_assets(client):
     assert "/static/js/candlestick.js?v=" in response.text
     assert "/static/js/websocket.js?v=" in response.text
     assert "/static/css/style.css?v=" in response.text
+
+
+def test_candlestick_invalid_interval_uses_unified_error_payload(client):
+    response = client.get("/api/price/candlestick?days=1&interval=5m")
+    data = response.json()
+
+    assert response.status_code == 400
+    assert data["success"] is False
+    assert data["error"]["code"] == "INVALID_INTERVAL"
+    assert "Invalid interval" in data["detail"]
+
+
+def test_advice_endpoint_uses_unified_error_payload_when_unavailable(client, monkeypatch):
+    from app.api import analysis as analysis_api
+
+    class FakeAdvisor:
+        def analyze_cached(self):
+            return None
+
+    monkeypatch.setattr(analysis_api, "MarketAdvisor", FakeAdvisor)
+
+    response = client.get("/api/analysis/advice")
+    data = response.json()
+
+    assert response.status_code == 503
+    assert data["success"] is False
+    assert data["error"]["code"] == "INSUFFICIENT_DATA"
+    assert data["detail"]

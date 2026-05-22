@@ -6,13 +6,15 @@ from fastapi.staticfiles import StaticFiles
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from datetime import datetime, timedelta
 
-from app.api import router as api_router
+from app.api import router as api_router, v1_router
 from app.api.websocket import manager as ws_manager
 from app.database import init_db
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.logging_config import setup_logging, get_logger
-from app.monitoring import metrics_collector, MetricsMiddleware, health_check, alert_manager
-from app.cache import cache_manager
+from app.monitoring import metrics_collector, MetricsMiddleware, alert_manager
+from app.monitoring.health import build_health_payload
+from app.monitoring.runtime_state import runtime_state
+from app.cache import cache_manager, build_cache_key, warm_cache
 from config import settings
 
 logger = get_logger(__name__)
@@ -24,28 +26,36 @@ async def cancel_background_task(task: asyncio.Task, task_name: str):
         return
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
-    logger.info(f"{task_name} stopped")
+    logger.info("%s stopped", task_name)
 
 
 async def collect_system_metrics():
     """Background task to collect system metrics every 30 seconds."""
+    runtime_state.mark_loop_running("metrics_loop", True)
     while True:
         try:
+            runtime_state.mark_loop_iteration_started("metrics_loop")
             metrics_collector.update_system_metrics()
+            runtime_state.mark_loop_iteration_success("metrics_loop")
             await asyncio.sleep(30)
         except Exception as e:
-            logger.error(f"System metrics collection error: {e}")
+            runtime_state.mark_loop_iteration_failure("metrics_loop", str(e))
+            logger.error("System metrics collection error: %s", e)
             await asyncio.sleep(30)
 
 
 async def evaluate_alerts():
     """Background task to evaluate alert rules every 60 seconds."""
+    runtime_state.mark_loop_running("alerts_loop", True)
     while True:
         try:
+            runtime_state.mark_loop_iteration_started("alerts_loop")
             alert_manager.evaluate_rules()
+            runtime_state.mark_loop_iteration_success("alerts_loop")
             await asyncio.sleep(60)
         except Exception as e:
-            logger.error(f"Alert evaluation error: {e}")
+            runtime_state.mark_loop_iteration_failure("alerts_loop", str(e))
+            logger.error("Alert evaluation error: %s", e)
             await asyncio.sleep(60)
 
 
@@ -70,7 +80,11 @@ def cleanup_old_logs():
         session.close()
 
         if deleted > 0:
-            logger.info(f"Cleaned up {deleted} old log entries older than {settings.log_retention_days} days")
+            logger.info(
+                "Cleaned up %s old log entries older than %s days",
+                deleted,
+                settings.log_retention_days,
+            )
     except Exception as e:
         logger.error(f"Log cleanup error: {e}")
 
@@ -100,6 +114,27 @@ def render_index_html(static_dir: str) -> str:
     return html
 
 
+def prewarm_core_cache() -> dict:
+    entries = [
+        (
+            build_cache_key("price", "latest"),
+            {"status": "pending"},
+            settings.cache_price_ttl,
+        ),
+        (
+            build_cache_key("history", "core", "30d"),
+            {"items": [], "meta": {"prewarmed": True}},
+            settings.cache_history_ttl,
+        ),
+        (
+            build_cache_key("indicator", "core", "latest"),
+            {"status": "pending"},
+            settings.cache_indicators_ttl,
+        ),
+    ]
+    return warm_cache(entries)
+
+
 def create_app() -> FastAPI:
     # 初始化日志系统
     setup_logging()
@@ -111,6 +146,7 @@ def create_app() -> FastAPI:
         app.add_middleware(MetricsMiddleware)
 
     app.include_router(api_router)
+    app.include_router(v1_router)
 
     # Prometheus指标端点
     if settings.prometheus_enabled:
@@ -124,7 +160,7 @@ def create_app() -> FastAPI:
     # 健康检查端点
     @app.get("/healthcheck")
     def healthcheck():
-        return health_check.run()
+        return build_health_payload()
 
     static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "static"))
     if os.path.isdir(static_dir):
@@ -142,10 +178,14 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def on_startup():
         logger.info("Starting GoldPrice application")
+        runtime_state.mark_app_started()
+        runtime_state.set_loop_enabled("alerts_loop", True)
+        runtime_state.set_loop_enabled("metrics_loop", settings.prometheus_enabled)
         init_db()
         app.state.ws_manager = ws_manager
         app.state.cache_manager = cache_manager
         app.state.metrics_collector = metrics_collector
+        app.state.cache_warmup = prewarm_core_cache()
         start_scheduler(app)
         # Start system metrics collection background task
         if settings.prometheus_enabled:
@@ -161,6 +201,8 @@ def create_app() -> FastAPI:
         logger.info("Shutting down application")
         await cancel_background_task(getattr(app.state, "alerts_task", None), "Alert evaluation")
         await cancel_background_task(getattr(app.state, "metrics_task", None), "System metrics")
+        runtime_state.mark_loop_running("alerts_loop", False)
+        runtime_state.mark_loop_running("metrics_loop", False)
         shutdown_scheduler()
         cache_manager.close()
         logger.info("Application shutdown complete")

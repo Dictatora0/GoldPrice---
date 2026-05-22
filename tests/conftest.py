@@ -1,5 +1,6 @@
 import os
 import sys
+
 import pytest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -10,6 +11,8 @@ if ROOT not in sys.path:
 os.environ["DEBUG"] = "false"
 os.environ["ENABLE_NOTIFICATION"] = "false"
 os.environ["DATABASE_PATH"] = "/tmp/gold_price_test.db"
+os.environ["LOG_TO_POSTGRES"] = "false"
+os.environ["REDIS_ENABLED"] = "false"
 
 # Disable connection pooling for tests to avoid SQLite threading issues
 os.environ["DATABASE_POOL_SIZE"] = "0"
@@ -20,7 +23,7 @@ def cleanup_database_connections():
     yield
     # Close any open database connections
     try:
-        from app.database.pooling import engine
+        from app.database import engine
         if engine:
             engine.dispose()
     except Exception:
