@@ -12,6 +12,10 @@ from app.analyzers.performance import (
     calculate_support_resistance,
     parse_horizon_days,
 )
+from app.analyzers.confidence import (
+    calculate_confidence_center,
+    parse_confidence_horizons,
+)
 from app.analyzers.macro import calculate_macro_correlation
 from app.analyzers.planning import (
     calculate_multi_timeframe,
@@ -153,6 +157,26 @@ def get_signal_performance(
         high_score_threshold=high_score_threshold,
     )
     return {"data": stats}
+
+
+@router.get(
+    "/confidence-center",
+    summary="Get strategy confidence center",
+    description="Return strategy health, current advice confidence, risk checks and similar historical signals.",
+)
+def get_confidence_center(
+    window_days: int = Query(180, ge=30, le=3650),
+    horizons: str = Query("3,7,30", description="Comma-separated horizon days, e.g. 3,7,30"),
+    limit: int = Query(300, ge=20, le=2000),
+    high_score_threshold: int = Query(80, ge=50, le=100),
+):
+    payload = calculate_confidence_center(
+        window_days=window_days,
+        horizons=parse_confidence_horizons(horizons),
+        limit=limit,
+        high_score_threshold=high_score_threshold,
+    )
+    return {"data": payload}
 
 
 @router.get(

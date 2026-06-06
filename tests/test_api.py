@@ -82,6 +82,26 @@ def seed_signal(ts, price, *, indicators=None, notified=True):
         )
 
 
+def seed_price_with_sources(ts, price, sources):
+    with get_db_session() as session:
+        history = PriceHistory(
+            timestamp=ts,
+            price_cny_per_gram=price,
+            source_count=sum(1 for item in sources if item.get("is_valid", True)),
+        )
+        session.add(history)
+        session.flush()
+        for item in sources:
+            session.add(
+                PriceSource(
+                    price_history_id=history.id,
+                    source_name=item["source_name"],
+                    price_cny_per_gram=item["price_cny_per_gram"],
+                    is_valid=item.get("is_valid", True),
+                )
+            )
+
+
 def test_health_endpoint_returns_ok(client):
     now = datetime.now()
     seed_price_history([(now, 500.0)])
@@ -115,6 +135,89 @@ def test_current_price_returns_latest(client):
 
     assert response.status_code == 200
     assert data["price_cny_per_gram"] == 485.5
+
+
+def test_latest_price_sources_endpoint_returns_quality_summary(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    seed_price_with_sources(
+        now,
+        612.4,
+        [
+            {"source_name": "sge_official", "price_cny_per_gram": 612.2, "is_valid": True},
+            {"source_name": "gold_cn", "price_cny_per_gram": 612.3, "is_valid": True},
+            {"source_name": "sina", "price_cny_per_gram": 612.4, "is_valid": True},
+            {"source_name": "eastmoney", "price_cny_per_gram": 612.6, "is_valid": True},
+            {"source_name": "global_gold", "price_cny_per_gram": 620.8, "is_valid": False},
+        ],
+    )
+
+    response = client.get("/api/price/sources/latest")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["price_cny_per_gram"] == 612.4
+    assert data["quality"]["confidence_level"] in {"high", "medium", "low"}
+    assert data["quality"]["valid_source_count"] == 4
+    assert data["quality"]["invalid_source_count"] == 1
+    assert data["quality"]["trusted_valid_source_count"] >= 1
+    assert data["quality"]["avg_recent_valid_rate_pct"] is not None
+    assert isinstance(data["sources"], list)
+    assert data["primary_source"]["name"] == "sge_official"
+    assert data["primary_source"]["display_name"] == "SGE 官网延时行情"
+    assert data["primary_source"]["status"] == "available"
+    assert any(item["name"] == "sge_official" and item["trust_tier"] == "high" for item in data["sources"])
+    assert any(item["name"] == "gold_cn" for item in data["sources"])
+    assert any(item["is_backup"] for item in data["sources"] if item["name"] == "global_gold")
+    assert any(item["health"]["sample_count"] >= 1 for item in data["sources"])
+    assert data["aggregation"]["method"] in {
+        "primary_trusted_anchor",
+        "weighted_trust_mean",
+        "fallback_mean",
+        "unavailable",
+    }
+
+
+def test_latest_price_sources_v1_endpoint_matches_legacy_route(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    seed_price_with_sources(
+        now,
+        605.2,
+        [
+            {"source_name": "gold_cn", "price_cny_per_gram": 605.1, "is_valid": True},
+            {"source_name": "sina", "price_cny_per_gram": 605.3, "is_valid": True},
+        ],
+    )
+
+    legacy_response = client.get("/api/price/sources/latest")
+    v1_response = client.get("/api/v1/price/sources/latest")
+
+    assert legacy_response.status_code == 200
+    assert v1_response.status_code == 200
+    assert legacy_response.json()["quality"] == v1_response.json()["quality"]
+    assert legacy_response.json()["primary_source"] == v1_response.json()["primary_source"]
+    assert legacy_response.json()["sources"] == v1_response.json()["sources"]
+
+
+def test_latest_price_sources_endpoint_marks_primary_source_missing(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    seed_price_with_sources(
+        now,
+        598.8,
+        [
+            {"source_name": "sge_official", "price_cny_per_gram": 598.7, "is_valid": False},
+            {"source_name": "gold_cn", "price_cny_per_gram": 598.9, "is_valid": False},
+            {"source_name": "sina", "price_cny_per_gram": 598.8, "is_valid": True},
+            {"source_name": "global_gold", "price_cny_per_gram": 599.0, "is_valid": True},
+        ],
+    )
+
+    response = client.get("/api/price/sources/latest")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["primary_source"]["name"] is None
+    assert data["primary_source"]["display_name"] == "主源缺席"
+    assert data["primary_source"]["status"] == "missing"
 
 
 def test_price_history_downsample_interval(client):
@@ -390,6 +493,173 @@ def test_multi_timeframe_forecast_and_entry_plan_endpoints(client):
     assert entry_plan_data["current_price"] is not None
     assert len(entry_plan_data["plan"]) == 3
     assert entry_plan_data["summary"]["avg_entry_price"] is not None
+
+
+def test_confidence_center_endpoint_returns_audit_view(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    prices = []
+    for offset in range(0, 70):
+        prices.append((now - timedelta(days=69 - offset), 500.0 + offset * 1.5))
+    seed_price_history(prices)
+
+    signal_time = now - timedelta(days=10)
+    signal_price = next(price for ts, price in prices if ts == signal_time)
+    seed_signal(
+        signal_time,
+        signal_price,
+        indicators={
+            "current_price": signal_price,
+            "evaluation_score": 84,
+            "evaluation_reasons": ["趋势回踩", "动量修复"],
+            "momentum": {"trend": "up", "change_pct": 0.8, "acceleration": 0.03},
+            "timeframe_analysis": {"alignment": "bullish_aligned"},
+        },
+        notified=False,
+    )
+
+    response = client.get("/api/analysis/confidence-center?window_days=120&horizons=3,7,30")
+    payload = response.json()["data"]
+
+    assert response.status_code == 200
+    assert payload["summary"]["signal_count"] >= 1
+    assert payload["summary"]["degradation_status"] in {"healthy", "watch", "degraded", "insufficient_data"}
+    assert "current_advice" in payload
+    assert "performance_snapshot" in payload
+    assert "risk_checks" in payload
+    assert "similar_history" in payload
+    assert "degradation_reason" in payload["summary"]
+    assert isinstance(payload["similar_history"]["matches"], list)
+    if payload["similar_history"]["matches"]:
+        first_match = payload["similar_history"]["matches"][0]
+        assert "forward_returns" in first_match
+        assert "primary_horizon_return_pct" in first_match
+
+
+def test_confidence_center_similar_history_includes_realized_returns(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    prices = []
+    for offset in range(0, 80):
+        prices.append((now - timedelta(days=79 - offset), 560.0 + offset * 2.0))
+    seed_price_history(prices)
+
+    first_signal_time = now - timedelta(days=15)
+    second_signal_time = now - timedelta(days=10)
+    first_signal_price = next(price for ts, price in prices if ts == first_signal_time)
+    second_signal_price = next(price for ts, price in prices if ts == second_signal_time)
+
+    seed_signal(
+        first_signal_time,
+        first_signal_price,
+        indicators={
+            "current_price": first_signal_price,
+            "evaluation_score": 83,
+            "evaluation_reasons": ["趋势延续", "支撑确认"],
+            "risk_flags": ["波动抬升"],
+            "momentum": {"trend": "up", "change_pct": 0.9, "acceleration": 0.03},
+            "timeframe_analysis": {"alignment": "bullish_aligned"},
+        },
+        notified=False,
+    )
+    seed_signal(
+        second_signal_time,
+        second_signal_price,
+        indicators={
+            "current_price": second_signal_price,
+            "evaluation_score": 86,
+            "evaluation_reasons": ["回踩确认", "量价配合"],
+            "risk_flags": ["波动抬升"],
+            "momentum": {"trend": "up", "change_pct": 1.1, "acceleration": 0.05},
+            "timeframe_analysis": {"alignment": "bullish_aligned"},
+        },
+        notified=False,
+    )
+
+    response = client.get("/api/analysis/confidence-center?window_days=180&horizons=3,7,30")
+    payload = response.json()["data"]
+
+    assert response.status_code == 200
+    assert payload["similar_history"]["match_count"] >= 1
+    realized_match = payload["similar_history"]["matches"][0]
+    assert realized_match["forward_returns"]["3d"] is not None
+    assert realized_match["forward_returns"]["7d"] is not None
+    assert realized_match["primary_horizon_return_pct"] is not None
+    assert payload["summary"]["degradation_reason"]
+
+
+def test_confidence_center_exposes_regime_breakdown(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    prices = []
+    for offset in range(0, 90):
+        prices.append((now - timedelta(days=89 - offset), 600.0 + offset * 1.4))
+    seed_price_history(prices)
+
+    signal_specs = [
+        (now - timedelta(days=20), "bullish_aligned", []),
+        (now - timedelta(days=16), "bullish_aligned", []),
+        (now - timedelta(days=12), "mixed", []),
+        (now - timedelta(days=9), "bearish_aligned", ["falling_knife"]),
+    ]
+    for signal_time, alignment, risk_flags in signal_specs:
+        signal_price = next(price for ts, price in prices if ts == signal_time)
+        seed_signal(
+            signal_time,
+            signal_price,
+            indicators={
+                "current_price": signal_price,
+                "evaluation_score": 78,
+                "evaluation_reasons": ["状态样本"],
+                "risk_flags": risk_flags,
+                "momentum": {"trend": "up", "change_pct": 0.5, "acceleration": 0.02},
+                "timeframe_analysis": {"alignment": alignment},
+            },
+            notified=False,
+        )
+
+    response = client.get("/api/analysis/confidence-center?window_days=180&horizons=3,7,30")
+    payload = response.json()["data"]
+
+    assert response.status_code == 200
+    assert "regime_breakdown" in payload["performance_snapshot"]
+    breakdown = payload["performance_snapshot"]["regime_breakdown"]
+    assert isinstance(breakdown, list)
+    labels = {item["label"] for item in breakdown}
+    assert "多头共振" in labels
+    assert "震荡混合" in labels
+    assert "飞刀风险" in labels
+    current_items = [item for item in breakdown if item.get("is_current")]
+    assert len(current_items) == 1
+    assert current_items[0]["label"] in labels
+
+
+def test_confidence_center_v1_endpoint_matches_legacy_route(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    prices = []
+    for offset in range(0, 70):
+        prices.append((now - timedelta(days=69 - offset), 520.0 + offset * 1.2))
+    seed_price_history(prices)
+
+    signal_time = now - timedelta(days=8)
+    signal_price = next(price for ts, price in prices if ts == signal_time)
+    seed_signal(
+        signal_time,
+        signal_price,
+        indicators={
+            "current_price": signal_price,
+            "evaluation_score": 81,
+            "evaluation_reasons": ["回踩支撑", "短期动能回升"],
+            "momentum": {"trend": "up", "change_pct": 0.6, "acceleration": 0.02},
+            "timeframe_analysis": {"alignment": "bullish_aligned"},
+        },
+        notified=False,
+    )
+
+    legacy_response = client.get("/api/analysis/confidence-center?window_days=120&horizons=3,7,30")
+    v1_response = client.get("/api/v1/analysis/confidence-center?window_days=120&horizons=3,7,30")
+
+    assert legacy_response.status_code == 200
+    assert v1_response.status_code == 200
+    assert legacy_response.json()["data"]["summary"] == v1_response.json()["data"]["summary"]
+    assert set(legacy_response.json()["data"].keys()) == set(v1_response.json()["data"].keys())
 
 
 def test_metrics_endpoint(client):

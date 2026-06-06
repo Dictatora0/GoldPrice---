@@ -194,6 +194,81 @@ function updatePrice(data) {
   }
 }
 
+function updateSourceQuality(panelData) {
+  const levelEl = getEl("source-quality-level");
+  const scoreEl = getEl("source-quality-score");
+  const summaryEl = getEl("source-quality-summary");
+  const primaryStatusEl = getEl("source-quality-primary-status");
+  const aggregationEl = getEl("source-quality-aggregation");
+  const listEl = getEl("source-quality-list");
+
+  if (!levelEl || !scoreEl || !summaryEl || !primaryStatusEl || !aggregationEl || !listEl) {
+    return;
+  }
+
+  if (!panelData) {
+    levelEl.textContent = "等待分析";
+    scoreEl.textContent = "--";
+    summaryEl.textContent = "等待最近一次源共识分析";
+    primaryStatusEl.textContent = "当前主源：等待分析";
+    aggregationEl.textContent = "等待聚合方法分析";
+    listEl.innerHTML = "<li>等待数据源明细</li>";
+    return;
+  }
+
+  const quality = panelData.quality || {};
+  const aggregation = panelData.aggregation || {};
+  const sources = Array.isArray(panelData.sources) ? panelData.sources : [];
+  const primarySource = panelData.primary_source || null;
+  const levelMap = {
+    high: "高可信",
+    medium: "中可信",
+    low: "低可信",
+  };
+  levelEl.textContent = levelMap[quality.confidence_level] || "待判断";
+  scoreEl.textContent = Number.isFinite(Number(quality.confidence_score))
+    ? `${Math.round(Number(quality.confidence_score))}`
+    : "--";
+  summaryEl.textContent = quality.summary || "当前尚无足够源共识信息";
+  if (primarySource && primarySource.status === "available") {
+    primaryStatusEl.textContent = `当前主源：${primarySource.display_name || primarySource.name}`;
+  } else if (primarySource && primarySource.status === "missing") {
+    primaryStatusEl.textContent = "当前主源：主源缺席";
+  } else {
+    const validPrimarySources = sources.filter(
+      (item) => item && item.is_valid && item.trust_tier === "high" && !item.is_backup
+    );
+    const preferredPrimarySource =
+      validPrimarySources.find((item) => item.name === "sge_official") || validPrimarySources[0] || null;
+    primaryStatusEl.textContent = preferredPrimarySource
+      ? `当前主源：${preferredPrimarySource.display_name || preferredPrimarySource.name}`
+      : "当前主源：主源缺席";
+  }
+  const aggregationMap = {
+    primary_trusted_anchor: "聚合方法：高可信主源锚定",
+    weighted_trust_mean: "聚合方法：多源加权均值",
+    secondary_weighted: "聚合方法：主源缺席下的次级加权",
+    fallback_mean: "聚合方法：退回简单均值",
+    unavailable: "聚合方法：当前不可用",
+  };
+  aggregationEl.textContent =
+    aggregationMap[aggregation.method] || "聚合方法：当前不可判定";
+  listEl.innerHTML = sources.length
+    ? sources
+        .map((item) => {
+          const validity = item.is_valid ? "有效" : "剔除";
+          const backup = item.is_backup ? " · 备用源" : "";
+          const recentValidRate = Number.isFinite(Number(item.health?.recent_valid_rate_pct))
+            ? ` · 健康率 ${Number(item.health.recent_valid_rate_pct).toFixed(0)}%`
+            : "";
+          return `<li>${item.display_name} · ¥${Number(item.price_cny_per_gram).toFixed(
+            2
+          )} · ${item.trust_tier} 可信 · ${validity}${backup}${recentValidRate}</li>`;
+        })
+        .join("")
+    : "<li>暂无数据源明细</li>";
+}
+
 function updateIndicators(indicators) {
   const values = indicators || {};
   const list = getEl("indicator-list");
@@ -337,6 +412,182 @@ function updateSignalPerformance(performance) {
     primaryHorizon?.score_return_correlation == null
       ? "评分与收益相关性样本不足"
       : `评分-收益相关性: ${Number(primaryHorizon.score_return_correlation).toFixed(3)}`;
+}
+
+function getAuditTone(status) {
+  if (status === "healthy") return { label: "健康", className: "risk-chip risk-safe" };
+  if (status === "watch") return { label: "观察", className: "risk-chip risk-watch" };
+  if (status === "degraded") return { label: "退化", className: "risk-chip risk-danger" };
+  return { label: "样本不足", className: "risk-chip risk-watch" };
+}
+
+function updateConfidenceCenter(panelData) {
+  const healthEl = getEl("confidence-health");
+  const signalCountEl = getEl("confidence-signal-count");
+  const winRateEl = getEl("confidence-primary-win-rate");
+  const returnEl = getEl("confidence-primary-return");
+  const recommendationEl = getEl("confidence-current-recommendation");
+  const factorEl = getEl("confidence-current-dominant-factor");
+  const summaryEl = getEl("confidence-current-summary");
+  const currentRegimeSummaryEl = getEl("confidence-current-regime-summary");
+  const checksEl = getEl("confidence-risk-checks");
+  const regimeEl = getEl("confidence-regime-breakdown");
+  const historyEl = getEl("confidence-similar-history");
+
+  if (
+    !healthEl ||
+    !signalCountEl ||
+    !winRateEl ||
+    !returnEl ||
+    !recommendationEl ||
+    !factorEl ||
+    !summaryEl ||
+    !currentRegimeSummaryEl ||
+    !checksEl ||
+    !regimeEl ||
+    !historyEl
+  ) {
+    return;
+  }
+
+  if (!panelData) {
+    healthEl.textContent = "等待分析";
+    signalCountEl.textContent = "--";
+    winRateEl.textContent = "--";
+    returnEl.textContent = "--";
+    recommendationEl.textContent = "--";
+    factorEl.textContent = "--";
+    summaryEl.textContent = "等待可信度分析";
+    currentRegimeSummaryEl.textContent = "等待当前环境历史表现";
+    checksEl.innerHTML = '<span class="risk-chip risk-watch">等待检查</span>';
+    regimeEl.innerHTML = "<li>等待状态分层统计</li>";
+    historyEl.innerHTML = "<li>等待历史相似样本分析</li>";
+    return;
+  }
+
+  const summary = panelData.summary || {};
+  const primary = panelData.performance_snapshot?.primary_horizon || {};
+  const regimeBreakdown = Array.isArray(panelData.performance_snapshot?.regime_breakdown)
+    ? panelData.performance_snapshot.regime_breakdown
+    : [];
+  const currentRegime = panelData.performance_snapshot?.current_regime || {};
+  const advice = panelData.current_advice || {};
+  const tone = getAuditTone(summary.degradation_status);
+  const sortedRegimeBreakdown = [...regimeBreakdown].sort((a, b) => {
+    if (Boolean(a?.is_current) === Boolean(b?.is_current)) return 0;
+    return a?.is_current ? -1 : 1;
+  });
+  const bestRegime = regimeBreakdown[0];
+  const currentRegimeLabel = currentRegime.label;
+  const currentRegimeItem =
+    sortedRegimeBreakdown.find((item) => item?.is_current) || null;
+  const overallWinRate = Number.isFinite(Number(primary.win_rate_pct))
+    ? Number(primary.win_rate_pct)
+    : null;
+  const overallAvgReturn = Number.isFinite(Number(primary.avg_return_pct))
+    ? Number(primary.avg_return_pct)
+    : null;
+
+  healthEl.textContent = tone.label;
+  signalCountEl.textContent = `${Number(summary.signal_count || 0)}`;
+  winRateEl.textContent = formatPctCompact(primary.win_rate_pct);
+  returnEl.textContent = formatPctCompact(primary.avg_return_pct);
+  recommendationEl.textContent = advice.recommendation || "暂无建议";
+  factorEl.textContent = advice.dominant_factor || "暂无主导因子";
+  summaryEl.textContent =
+    currentRegimeItem && currentRegimeLabel
+      ? `${summary.degradation_reason || "暂无策略体检摘要"} 当前处于${currentRegimeLabel}。`
+      : bestRegime && currentRegimeLabel
+      ? `${summary.degradation_reason || "暂无策略体检摘要"} 当前处于${currentRegimeLabel}，样本最多的状态是${bestRegime.label}，胜率 ${formatPctCompact(
+          bestRegime.win_rate_pct
+        )}，平均收益 ${formatPctCompact(bestRegime.avg_return_pct)}。`
+      : bestRegime
+      ? `${summary.degradation_reason || "暂无策略体检摘要"} 当前样本最多的状态是${bestRegime.label}，胜率 ${formatPctCompact(
+          bestRegime.win_rate_pct
+        )}，平均收益 ${formatPctCompact(bestRegime.avg_return_pct)}。`
+      : summary.degradation_reason ||
+        advice.change_reason ||
+        advice.summary ||
+        panelData.similar_history?.summary ||
+        "暂无可信度摘要";
+  currentRegimeSummaryEl.textContent = currentRegimeItem
+    ? (() => {
+        const currentWinRate = Number.isFinite(Number(currentRegimeItem.win_rate_pct))
+          ? Number(currentRegimeItem.win_rate_pct)
+          : null;
+        const currentAvgReturn = Number.isFinite(Number(currentRegimeItem.avg_return_pct))
+          ? Number(currentRegimeItem.avg_return_pct)
+          : null;
+        const winRateDelta =
+          currentWinRate != null && overallWinRate != null
+            ? currentWinRate - overallWinRate
+            : null;
+        const avgReturnDelta =
+          currentAvgReturn != null && overallAvgReturn != null
+            ? currentAvgReturn - overallAvgReturn
+            : null;
+        const winRateCompare =
+          winRateDelta == null
+            ? "整体胜率对比暂不可用"
+            : winRateDelta >= 0
+            ? `高于整体胜率 ${formatSignedNumber(winRateDelta)}pct`
+            : `低于整体胜率 ${Math.abs(winRateDelta).toFixed(2)}pct`;
+        const avgReturnCompare =
+          avgReturnDelta == null
+            ? "整体收益对比暂不可用"
+            : avgReturnDelta >= 0
+            ? `高于整体收益 ${formatPctCompact(avgReturnDelta)}`
+            : `低于整体收益 ${Math.abs(avgReturnDelta).toFixed(2)}%`;
+        return `当前环境历史表现：${currentRegimeItem.label} · 样本 ${Number(
+          currentRegimeItem.sample_count || 0
+        )} · ${winRateCompare} · ${avgReturnCompare}`;
+      })()
+    : "当前环境历史表现暂不可用";
+
+  const checks = Array.isArray(panelData.risk_checks) ? panelData.risk_checks : [];
+  checksEl.innerHTML = checks.length
+    ? checks
+        .map((check) => {
+          const checkTone =
+            check.status === "pass"
+              ? "risk-safe"
+              : check.status === "warn"
+              ? "risk-watch"
+              : "risk-danger";
+          return `<span class="risk-chip ${checkTone}">${check.name}: ${check.detail}</span>`;
+        })
+        .join("")
+    : '<span class="risk-chip risk-watch">暂无检查结果</span>';
+
+  regimeEl.innerHTML = sortedRegimeBreakdown.length
+    ? sortedRegimeBreakdown
+        .map((item) => {
+          const sampleCount = Number(item.sample_count || 0);
+          const currentChip = item.is_current
+            ? ' <span class="risk-chip risk-safe">当前状态</span>'
+            : "";
+          return `<li>${item.label} · 样本 ${sampleCount} · 胜率 ${formatPctCompact(
+            item.win_rate_pct
+          )} · 平均收益 ${formatPctCompact(item.avg_return_pct)}${currentChip}</li>`;
+        })
+        .join("")
+    : "<li>暂无状态分层统计</li>";
+
+  const matches = Array.isArray(panelData.similar_history?.matches)
+    ? panelData.similar_history.matches
+    : [];
+  historyEl.innerHTML = matches.length
+    ? matches
+        .map((item) => {
+          const reasons = Array.isArray(item.reasons) && item.reasons.length ? ` · ${item.reasons.join(" / ")}` : "";
+          const score = Number.isFinite(Number(item.score)) ? ` · 评分 ${Number(item.score).toFixed(0)}` : "";
+          const realized = item.primary_horizon_return_pct == null
+            ? ""
+            : ` · 主窗口收益 ${formatPctCompact(item.primary_horizon_return_pct)}`;
+          return `<li>${new Date(item.timestamp).toLocaleDateString()} · ¥${Number(item.price_cny_per_gram).toFixed(2)}${score}${realized}${reasons}</li>`;
+        })
+        .join("")
+    : `<li>${panelData.similar_history?.summary || "未找到相似历史样本"}</li>`;
 }
 
 function levelToneClass(kind) {
@@ -1786,24 +2037,30 @@ async function loadDashboard() {
   try {
     const [
       current,
+      sourceQuality,
       history,
       indicators,
       signals,
       advice,
       buySignal,
       signalPerformance,
+      confidenceCenter,
       supportResistance,
       macroCorrelation,
       multiTimeframe,
       forecast,
     ] = await Promise.all([
       fetchJSON("/api/price/current", signal),
+      fetchJSON("/api/price/sources/latest", signal).catch(() => null),
       fetchJSON(`/api/price/history?days=${range.days}&interval=${range.interval}`, signal),
       fetchJSON("/api/analysis/indicators", signal),
       fetchJSON(`/api/analysis/signals?days=${range.days}`, signal),
       fetchJSON("/api/analysis/advice", signal).catch(() => null),
       fetchJSON("/api/analysis/buy-signal", signal).catch(() => null),
       fetchJSON(`/api/analysis/signal-performance?window_days=${Math.max(range.days, 90)}`, signal).catch(
+        () => null
+      ),
+      fetchJSON(`/api/analysis/confidence-center?window_days=${Math.max(range.days, 120)}`, signal).catch(
         () => null
       ),
       fetchJSON(`/api/analysis/support-resistance?window_days=${Math.max(range.days, 90)}`, signal).catch(
@@ -1831,9 +2088,11 @@ async function loadDashboard() {
       price_cny_per_gram: latestPrice,
       timestamp: current?.timestamp,
     });
+    updateSourceQuality(sourceQuality);
 
     const items = Array.isArray(history?.items) ? history.items : [];
     updateSignalPerformance(signalPerformance?.data || null);
+    updateConfidenceCenter(confidenceCenter?.data || null);
     updateSupportResistance(supportResistance?.data || null);
     updateMacroCorrelation(macroCorrelation?.data || null);
     updateMultiTimeframe(multiTimeframe?.data || null);

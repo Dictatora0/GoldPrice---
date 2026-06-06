@@ -1,12 +1,20 @@
 from app.collectors.sina import SinaCollector
 from app.collectors.eastmoney import EastMoneyCollector
 from app.collectors.gold_cn import GoldCNCollector
+from app.collectors.sge_official import SGEOfficialCollector
 from app.collectors.global_gold import GlobalGoldCollector
 from typing import List, Dict, Tuple
 from datetime import datetime
 import asyncio
 import logging
 import statistics
+from app.database import get_db_session
+from app.models import PriceSource
+from app.source_quality import (
+    build_source_entry,
+    build_source_health_map,
+    calculate_consensus_price,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +24,7 @@ class CollectorManager:
 
     def __init__(self, timeout: int = 10):
         self.collectors = [
+            SGEOfficialCollector(timeout),
             SinaCollector(timeout),
             EastMoneyCollector(timeout),
             GoldCNCollector(timeout),
@@ -88,14 +97,31 @@ class CollectorManager:
         if invalid_sources:
             logger.warning(f"Outlier sources filtered: {list(invalid_sources.keys())}")
 
-        valid_prices = list(filtered_sources.values())
-
-        # 计算均价
-        avg_price = sum(valid_prices) / len(valid_prices)
+        health_rows = []
+        with get_db_session(read_only=True) as session:
+            health_rows = (
+                session.query(PriceSource.source_name, PriceSource.is_valid)
+                .order_by(PriceSource.created_at.desc())
+                .limit(200)
+                .all()
+            )
+        health_map = build_source_health_map(health_rows)
+        source_entries = [
+            build_source_entry(
+                source_name=name,
+                price_cny_per_gram=price,
+                is_valid=True,
+                health=health_map.get(name),
+            )
+            for name, price in filtered_sources.items()
+        ]
+        consensus = calculate_consensus_price(source_entries)
+        avg_price = consensus["price_cny_per_gram"]
 
         return {
             "timestamp": datetime.now(),
             "price_cny_per_gram": round(avg_price, 2),
             "sources": filtered_sources,
             "invalid_sources": invalid_sources,
+            "aggregation": consensus,
         }

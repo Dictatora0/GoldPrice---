@@ -1,6 +1,7 @@
 from app.collectors.sina import SinaCollector
 from app.collectors.eastmoney import EastMoneyCollector
 from app.collectors.gold_cn import GoldCNCollector
+from app.collectors.sge_official import SGEOfficialCollector
 from app.collectors.global_gold import GlobalGoldCollector
 
 
@@ -36,6 +37,22 @@ def test_sge_extract_price():
     """
 
     assert GoldCNCollector.extract_price(html, symbol="Au99.99") == 1118.90
+
+
+def test_sge_official_extract_price():
+    html = """
+    <table>
+      <thead>
+        <tr><th>合约</th><th>最新价</th><th>涨跌</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Au99.99</td><td>1119.20</td><td>-0.65</td></tr>
+        <tr><td>Au99.95</td><td>1118.60</td><td>-0.70</td></tr>
+      </tbody>
+    </table>
+    """
+
+    assert SGEOfficialCollector.extract_price(html, symbol="Au99.99") == 1119.20
 
 
 def test_global_gold_extract_usd_gold_price():

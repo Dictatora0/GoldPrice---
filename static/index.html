@@ -75,6 +75,20 @@
           </div>
         </article>
 
+        <article class="card hero-source-quality reveal" style="--delay: 240ms">
+          <div class="card-header">
+            <span>数据源质量</span>
+            <span id="source-quality-level">等待分析</span>
+          </div>
+          <p class="signal-state" id="source-quality-score">--</p>
+          <p class="signal-sub" id="source-quality-summary">等待最近一次源共识分析</p>
+          <p class="signal-sub" id="source-quality-primary-status">当前主源：等待分析</p>
+          <p class="signal-sub" id="source-quality-aggregation">等待聚合方法分析</p>
+          <ul class="signal-list source-quality-list" id="source-quality-list">
+            <li>等待数据源明细</li>
+          </ul>
+        </article>
+
         <article class="card hero-signal reveal" style="--delay: 280ms">
           <div class="card-header">
             <span>买入信号</span>
@@ -289,6 +303,43 @@
           </div>
           <p class="performance-note" id="backtest-highscore">高分信号表现暂不可用</p>
           <p class="performance-note" id="backtest-correlation">评分与收益相关性暂不可用</p>
+        </article>
+        <article class="card signal-performance reveal" style="--delay: 580ms">
+          <div class="card-header">
+            <span>策略体检 / 可信度中心</span>
+            <span class="muted" id="confidence-health">等待分析</span>
+          </div>
+          <div class="performance-overview">
+            <div class="metric-box">
+              <p class="label">信号总数</p>
+              <p class="metric" id="confidence-signal-count">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">主窗口胜率</p>
+              <p class="metric" id="confidence-primary-win-rate">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">主窗口收益</p>
+              <p class="metric" id="confidence-primary-return">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">当前建议</p>
+              <p class="metric" id="confidence-current-recommendation">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">主导因子</p>
+              <p class="metric" id="confidence-current-dominant-factor">--</p>
+            </div>
+          </div>
+          <p class="performance-note" id="confidence-current-summary">等待可信度分析</p>
+          <p class="performance-note" id="confidence-current-regime-summary">等待当前环境历史表现</p>
+          <div class="debug-flag-list" id="confidence-risk-checks"></div>
+          <ul class="signal-list" id="confidence-regime-breakdown">
+            <li>等待状态分层统计</li>
+          </ul>
+          <ul class="signal-list" id="confidence-similar-history">
+            <li>等待历史相似样本分析</li>
+          </ul>
         </article>
         <article class="card sr-panel reveal" style="--delay: 600ms">
           <div class="card-header">

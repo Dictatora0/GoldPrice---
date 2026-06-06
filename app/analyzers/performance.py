@@ -68,6 +68,47 @@ def _pearson_correlation(pairs: Iterable[tuple[float, float]]) -> Optional[float
     return numerator / denominator
 
 
+def calculate_forward_returns_from_series(
+    *,
+    signal_time: datetime,
+    signal_price: float,
+    horizons: Sequence[int],
+    price_timestamps: Sequence[datetime],
+    price_values: Sequence[float],
+) -> dict[int, dict[str, float]]:
+    if signal_price <= 0:
+        return {}
+
+    start_idx = bisect_left(price_timestamps, signal_time)
+    if start_idx >= len(price_values):
+        return {}
+
+    forward_returns: dict[int, dict[str, float]] = {}
+    for horizon_days in sorted(set(int(day) for day in horizons if int(day) > 0)):
+        target_time = signal_time + timedelta(days=horizon_days)
+        target_idx = bisect_left(price_timestamps, target_time)
+        if target_idx >= len(price_values):
+            continue
+
+        future_price = price_values[target_idx]
+        if future_price <= 0:
+            continue
+
+        interval_prices = price_values[start_idx : target_idx + 1]
+        if not interval_prices:
+            continue
+
+        signal_return_pct = (future_price - signal_price) / signal_price * 100
+        trough_price = min(interval_prices)
+        drawdown_pct = (trough_price - signal_price) / signal_price * 100
+        forward_returns[horizon_days] = {
+            "return_pct": signal_return_pct,
+            "drawdown_pct": drawdown_pct,
+        }
+
+    return forward_returns
+
+
 def calculate_signal_backtest(
     *,
     window_days: int = 180,
@@ -158,32 +199,18 @@ def calculate_signal_backtest(
         indicator_payload = decode_signal_indicators(indicators_raw)
         signal_score = _safe_float(indicator_payload.get("evaluation_score"))
 
-        start_idx = bisect_left(price_timestamps, signal_time)
-        if start_idx >= len(price_values):
-            continue
-
-        for horizon_days in normalized_horizons:
-            target_time = signal_time + timedelta(days=horizon_days)
-            target_idx = bisect_left(price_timestamps, target_time)
-            if target_idx >= len(price_values):
-                continue
-
-            future_price = price_values[target_idx]
-            if future_price <= 0:
-                continue
-
-            interval_prices = price_values[start_idx : target_idx + 1]
-            if not interval_prices:
-                continue
-
-            signal_return_pct = (future_price - signal_price) / signal_price * 100
-            trough_price = min(interval_prices)
-            drawdown_pct = (trough_price - signal_price) / signal_price * 100
-
+        forward_returns = calculate_forward_returns_from_series(
+            signal_time=signal_time,
+            signal_price=signal_price,
+            horizons=normalized_horizons,
+            price_timestamps=price_timestamps,
+            price_values=price_values,
+        )
+        for horizon_days, sample in forward_returns.items():
             horizon_samples[horizon_days].append(
                 {
-                    "return_pct": signal_return_pct,
-                    "drawdown_pct": drawdown_pct,
+                    "return_pct": sample["return_pct"],
+                    "drawdown_pct": sample["drawdown_pct"],
                     "score": signal_score if signal_score is not None else float("nan"),
                 }
             )

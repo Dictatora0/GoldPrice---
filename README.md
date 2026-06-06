@@ -316,6 +316,7 @@ DEBUG=false
 - `GET /api/analysis/signals` - 获取买入信号历史
 - `GET /api/analysis/advice` - 获取智能建议
 - `GET /api/analysis/signal-performance` - 获取历史信号回测表现
+- `GET /api/analysis/confidence-center` - 获取策略体检与建议可信度中心
 - `GET /api/analysis/support-resistance` - 获取自动识别支撑/阻力位
 
 ### 预警相关
@@ -344,6 +345,9 @@ curl http://localhost:8000/api/analysis/advice
 
 # 获取信号回测统计(默认3/7/30天窗口)
 curl "http://localhost:8000/api/analysis/signal-performance?window_days=180&horizons=3,7,30"
+
+# 获取策略体检与当前建议可信度
+curl "http://localhost:8000/api/analysis/confidence-center?window_days=180&horizons=3,7,30"
 
 # 获取支撑/阻力关键位
 curl "http://localhost:8000/api/analysis/support-resistance?window_days=180&pivot_window=5"

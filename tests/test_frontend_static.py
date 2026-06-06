@@ -117,6 +117,12 @@ def test_signal_state_has_live_attention_animation():
 def test_dashboard_has_market_brief_slots():
     html = INDEX_HTML.read_text(encoding="utf-8")
 
+    assert 'id="source-quality-level"' in html
+    assert 'id="source-quality-score"' in html
+    assert 'id="source-quality-summary"' in html
+    assert 'id="source-quality-primary-status"' in html
+    assert 'id="source-quality-aggregation"' in html
+    assert 'id="source-quality-list"' in html
     assert 'id="market-brief"' in html
     assert 'id="market-recommendation"' in html
     assert 'id="market-state"' in html
@@ -131,6 +137,17 @@ def test_dashboard_has_market_brief_slots():
 def test_dashboard_chart_script_renders_market_brief():
     script = CHART_JS.read_text(encoding="utf-8")
 
+    assert 'fetchJSON("/api/price/sources/latest", signal)' in script
+    assert "function updateSourceQuality(panelData)" in script
+    assert 'getEl("source-quality-level")' in script
+    assert 'getEl("source-quality-score")' in script
+    assert 'getEl("source-quality-summary")' in script
+    assert 'getEl("source-quality-primary-status")' in script
+    assert 'getEl("source-quality-aggregation")' in script
+    assert 'getEl("source-quality-list")' in script
+    assert "panelData.primary_source" in script
+    assert "当前主源：" in script
+    assert "主源缺席" in script
     assert 'fetchJSON("/api/analysis/advice", signal)' in script
     assert "function updateMarketBrief(advice)" in script
     assert "function getRecommendationToneClass(recommendation)" in script
@@ -147,6 +164,8 @@ def test_dashboard_chart_script_renders_market_brief():
 def test_market_brief_styles_define_recommendation_and_risk_tones():
     css = STYLE_CSS.read_text(encoding="utf-8")
 
+    assert ".hero-source-quality" in css
+    assert ".source-quality-list" in css
     assert ".market-recommendation.market-buy" in css
     assert ".market-recommendation.market-hold" in css
     assert ".market-recommendation.market-risk" in css
@@ -246,15 +265,36 @@ def test_dashboard_has_signal_performance_and_sr_slots():
     assert 'id="entry-plan-form"' in html
     assert 'id="entry-plan-summary"' in html
     assert 'id="entry-plan-list"' in html
+    assert 'id="confidence-health"' in html
+    assert 'id="confidence-signal-count"' in html
+    assert 'id="confidence-primary-win-rate"' in html
+    assert 'id="confidence-primary-return"' in html
+    assert 'id="confidence-current-recommendation"' in html
+    assert 'id="confidence-current-dominant-factor"' in html
+    assert 'id="confidence-current-summary"' in html
+    assert 'id="confidence-current-regime-summary"' in html
+    assert 'id="confidence-risk-checks"' in html
+    assert 'id="confidence-regime-breakdown"' in html
+    assert 'id="confidence-similar-history"' in html
 
 
 def test_dashboard_chart_script_renders_performance_and_sr_panels():
     script = CHART_JS.read_text(encoding="utf-8")
 
     assert "function updateSignalPerformance(performance)" in script
+    assert "function updateConfidenceCenter(panelData)" in script
+    assert "regime_breakdown" in script
+    assert "is_current" in script
+    assert "当前状态" in script
+    assert "当前环境历史表现" in script
+    assert "高于整体胜率" in script
+    assert "低于整体胜率" in script
+    assert 'getEl("confidence-current-regime-summary")' in script
+    assert 'getEl("confidence-regime-breakdown")' in script
     assert "function updateSupportResistance(levelData)" in script
     assert "function buildSupportResistanceDatasets(length, levelLines)" in script
     assert 'fetchJSON(`/api/analysis/signal-performance?window_days=${Math.max(range.days, 90)}`' in script
+    assert 'fetchJSON(`/api/analysis/confidence-center?window_days=${Math.max(range.days, 120)}`' in script
     assert 'fetchJSON(`/api/analysis/support-resistance?window_days=${Math.max(range.days, 90)}`' in script
     assert "state.supportResistanceLines = Array.isArray(levelData.plot_lines)" in script
     assert "function loadCustomAlerts(signal)" in script

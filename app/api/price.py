@@ -11,8 +11,15 @@ from fastapi import APIRouter, Query
 from app.api.errors import error_response
 from app.cache import cache_manager, get_json_cache, set_json_cache, build_cache_key
 from app.database import get_db_session
-from app.models import PriceHistory
+from app.models import PriceHistory, PriceSource
 from app.price_regime import build_regime_meta, filter_current_regime
+from app.source_quality import (
+    build_source_entry,
+    build_source_health_map,
+    calculate_consensus_price,
+    determine_primary_source,
+    summarize_source_quality,
+)
 from config import settings
 
 router = APIRouter(prefix="/api/price", tags=["price"])
@@ -111,6 +118,69 @@ def get_current_price():
             "price_cny_per_gram": price_cny_per_gram,
             "source_count": source_count,
         }
+
+
+@router.get(
+    "/sources/latest",
+    summary="Get latest source quality snapshot",
+    description="Return the latest persisted source breakdown and a credibility summary for the current price.",
+)
+def get_latest_price_sources():
+    with get_db_session(read_only=True) as session:
+        latest = (
+            session.query(
+                PriceHistory.id,
+                PriceHistory.timestamp,
+                PriceHistory.price_cny_per_gram,
+                PriceHistory.source_count,
+            )
+            .order_by(PriceHistory.timestamp.desc())
+            .first()
+        )
+        if not latest:
+            return error_response(404, "PRICE_NOT_FOUND", "No price data", "No price data")
+
+        history_id, timestamp, price_cny_per_gram, source_count = latest
+        source_rows = (
+            session.query(
+                PriceSource.source_name,
+                PriceSource.price_cny_per_gram,
+                PriceSource.is_valid,
+            )
+            .filter(PriceSource.price_history_id == history_id)
+            .order_by(PriceSource.is_valid.desc(), PriceSource.source_name.asc())
+            .all()
+        )
+        health_rows = (
+            session.query(PriceSource.source_name, PriceSource.is_valid)
+            .order_by(PriceSource.created_at.desc())
+            .limit(200)
+            .all()
+        )
+
+    health_map = build_source_health_map(health_rows)
+    sources = [
+        build_source_entry(
+            source_name=source_name,
+            price_cny_per_gram=source_price,
+            is_valid=is_valid,
+            health=health_map.get(source_name),
+        )
+        for source_name, source_price, is_valid in source_rows
+    ]
+    quality = summarize_source_quality(sources)
+    aggregation = calculate_consensus_price(sources)
+    primary_source = determine_primary_source(sources)
+
+    return {
+        "timestamp": timestamp.isoformat(),
+        "price_cny_per_gram": price_cny_per_gram,
+        "source_count": source_count,
+        "quality": quality,
+        "primary_source": primary_source,
+        "aggregation": aggregation,
+        "sources": sources,
+    }
 
 
 @router.get(

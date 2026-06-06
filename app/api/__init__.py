@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.price import (
     get_current_price,
+    get_latest_price_sources,
     get_price_history,
     get_candlestick_data,
     router as price_router,
@@ -13,6 +14,7 @@ from app.api.analysis import (
     get_buy_signal_evaluation,
     get_cache_stats,
     get_signal_performance,
+    get_confidence_center,
     get_support_resistance,
     get_macro_correlation,
     get_multi_timeframe,
@@ -42,6 +44,7 @@ router.include_router(alerts_router)
 
 v1_router = APIRouter()
 v1_router.get("/api/v1/price/current")(get_current_price)
+v1_router.get("/api/v1/price/sources/latest")(get_latest_price_sources)
 v1_router.get("/api/v1/price/history")(get_price_history)
 v1_router.get("/api/v1/price/candlestick")(get_candlestick_data)
 v1_router.get("/api/v1/analysis/indicators")(get_indicators)
@@ -50,6 +53,7 @@ v1_router.get("/api/v1/analysis/advice")(get_advice)
 v1_router.get("/api/v1/analysis/buy-signal")(get_buy_signal_evaluation)
 v1_router.get("/api/v1/analysis/cache/stats")(get_cache_stats)
 v1_router.get("/api/v1/analysis/signal-performance")(get_signal_performance)
+v1_router.get("/api/v1/analysis/confidence-center")(get_confidence_center)
 v1_router.get("/api/v1/analysis/support-resistance")(get_support_resistance)
 v1_router.get("/api/v1/analysis/macro-correlation")(get_macro_correlation)
 v1_router.get("/api/v1/analysis/multi-timeframe")(get_multi_timeframe)
