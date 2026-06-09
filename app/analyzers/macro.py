@@ -47,6 +47,16 @@ def _pearson_correlation(xs: list[float], ys: list[float]) -> Optional[float]:
     return numerator / denominator
 
 
+def _calculate_pct_returns(values: list[float]) -> list[float]:
+    returns: list[float] = []
+    for idx in range(1, len(values)):
+        previous = values[idx - 1]
+        current = values[idx]
+        if previous > 0:
+            returns.append((current - previous) / previous * 100)
+    return returns
+
+
 def _extract_quoted_fields(payload: str) -> list[str]:
     match = re.search(r'="([^"]+)"', payload)
     if not match:
@@ -202,6 +212,8 @@ def calculate_macro_correlation(
             "premium_min_cny_per_gram": None,
             "premium_max_cny_per_gram": None,
             "domestic_global_corr": None,
+            "domestic_global_return_corr": None,
+            "correlation_basis": "return_pct",
             "usd_proxy": usd_snapshot,
             "macro_hint": "样本不足，暂无法形成美元/国际金价联动判断。",
             "recent_points": [],
@@ -245,6 +257,8 @@ def calculate_macro_correlation(
             "premium_min_cny_per_gram": None,
             "premium_max_cny_per_gram": None,
             "domestic_global_corr": None,
+            "domestic_global_return_corr": None,
+            "correlation_basis": "return_pct",
             "usd_proxy": fetch_usdcny_snapshot() if include_live_fx else None,
             "macro_hint": "样本不足，暂无法形成美元/国际金价联动判断。",
             "recent_points": [],
@@ -253,6 +267,9 @@ def calculate_macro_correlation(
 
     latest = points[-1]
     domestic_global_corr = _pearson_correlation(domestic_prices, global_prices)
+    domestic_returns = _calculate_pct_returns(domestic_prices)
+    global_returns = _calculate_pct_returns(global_prices)
+    domestic_global_return_corr = _pearson_correlation(domestic_returns, global_returns)
     usd_snapshot = fetch_usdcny_snapshot() if include_live_fx else {
         "pair": "USDCNY",
         "name": "USDCNY 即期汇率",
@@ -265,7 +282,7 @@ def calculate_macro_correlation(
 
     hint = _build_macro_hint(
         premium_pct=latest.get("premium_pct"),
-        domestic_global_corr=domestic_global_corr,
+        domestic_global_corr=domestic_global_return_corr,
         usd_change_pct=usd_snapshot.get("change_pct"),
     )
 
@@ -280,6 +297,8 @@ def calculate_macro_correlation(
         "premium_min_cny_per_gram": _round_optional(min(premium_values), 3),
         "premium_max_cny_per_gram": _round_optional(max(premium_values), 3),
         "domestic_global_corr": _round_optional(domestic_global_corr, 4),
+        "domestic_global_return_corr": _round_optional(domestic_global_return_corr, 4),
+        "correlation_basis": "return_pct",
         "usd_proxy": usd_snapshot,
         "macro_hint": hint,
         "recent_points": points[-120:],

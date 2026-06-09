@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
 from app.analyzers.indicators import IndicatorCalculator
@@ -54,8 +54,58 @@ def test_get_price_data_uses_only_current_price_regime():
                 )
             )
 
-    df = calc.get_price_data(days=30)
+    df = calc.get_price_data(days=30, interval="raw")
 
     assert not df.empty
     assert len(df) == len(recent_points)
     assert df["price"].min() > 900
+
+
+def test_get_price_data_daily_interval_is_stable_across_intraday_sampling():
+    calc = IndicatorCalculator()
+    base = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0) - timedelta(days=39)
+
+    with get_db_session() as session:
+        for day in range(40):
+            day_start = base + timedelta(days=day)
+            session.add(
+                PriceHistory(
+                    timestamp=day_start,
+                    price_cny_per_gram=500.0 + day,
+                    source_count=1,
+                )
+            )
+            session.add(
+                PriceHistory(
+                    timestamp=day_start + timedelta(hours=6),
+                    price_cny_per_gram=500.5 + day,
+                    source_count=1,
+                )
+            )
+
+    df = calc.get_price_data(days=90, interval="1d")
+
+    assert len(df) == 40
+    assert df.attrs["basis_interval"] == "1d"
+    assert df["price"].iloc[0] == 500.5
+    assert df["price"].iloc[-1] == 539.5
+
+
+def test_calculate_all_exposes_indicator_basis_interval():
+    calc = IndicatorCalculator()
+    base = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0) - timedelta(days=99)
+
+    with get_db_session() as session:
+        for day in range(100):
+            session.add(
+                PriceHistory(
+                    timestamp=base + timedelta(days=day),
+                    price_cny_per_gram=480.0 + day,
+                    source_count=1,
+                )
+            )
+
+    indicators = calc.calculate_all()
+
+    assert indicators["basis_interval"] == "1d"
+    assert indicators["sample_count"] == 100

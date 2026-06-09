@@ -85,8 +85,11 @@ python run.py
 本地后台启动（推荐日常使用）：
 
 ```bash
-
-
+cp .env.example .env
+./manage.sh init-db
+./manage.sh start
+./manage.sh status
+./manage.sh daemon-check
 ```
 
 后台停止/重启：
@@ -160,6 +163,25 @@ cp .env.example .env
 2. 若 `runtime.scheduler.running=false`，先看 `logs/server.out` 是否缺少 `apscheduler` 依赖。
 3. 若 `runtime.alerts_loop.running=false`，检查启动日志中是否有 `Alert evaluation error`。
 4. 若 `data.ok=false`（数据过期），检查采集源连通性和 `COLLECTION_INTERVAL`。
+
+真实系统 smoke test（启动、初始化、采集一次、访问关键 API、检查前端可取到数据）：
+
+```bash
+BASE_URL=http://127.0.0.1:8000 bash scripts/smoke_test.sh
+```
+
+说明：
+- smoke test 会在服务不可达时调用 `./manage.sh start`。
+- 默认会执行一次真实行情采集，需要网络可用；如只想检查已运行服务和 API，可设置 `RUN_COLLECT=false`。
+- 如果脚本启动了后台服务，会保留服务运行，便于继续打开网页检查。
+
+## 🧭 数据可信度说明
+
+- **SGE 主源**：优先使用上海黄金交易所官网延时行情，作为国内金价判断的高可信锚点；页面“当前主源”显示可用或缺席状态。
+- **备用源**：新浪财经、东方财富、金投网等用于兜底和交叉校验；当主源缺席时，系统会按可信度加权聚合，但页面会降低数据源质量提示。
+- **宏观换算价**：国际金价/美元汇率换算为人民币克价，用于观察内外盘价差和宏观相关性，不等同于国内可成交价格。
+- **预测模型**：基于历史价格序列估算未来概率和区间，只表示统计倾向；前端会展示样本数、时间基准和“样本不足/低可信”等标记，不能当作确定收益承诺。
+- **策略回测**：历史信号表现会按当前市场环境分层，优先参考当前 regime 对应样本；样本不足时应按观望处理。
 
 ## 🎯 使用指南
 
@@ -353,7 +375,7 @@ curl "http://localhost:8000/api/analysis/confidence-center?window_days=180&horiz
 curl "http://localhost:8000/api/analysis/support-resistance?window_days=180&pivot_window=5"
 
 # 新增自定义预警：价格跌破 580 元
-curl -X POST "http://localhost:8000/api/alerts?name=price-floor-580&rule_type=price_below&threshold=580&channels=system,webhook&cooldown_minutes=60&enabled=true"
+curl -X POST "http://localhost:8000/api/alerts?name=price-floor-580&rule_type=price_below&threshold=580&channels=system,email,wechat&cooldown_minutes=60&enabled=true"
 
 # 获取K线数据
 curl "http://localhost:8000/api/price/candlestick?days=7&interval=1h"
@@ -409,6 +431,12 @@ curl "http://localhost:8000/api/logs?start=2026-03-17T00:00:00&end=2026-03-17T23
 ./manage.sh test
 # 或
 python -m pytest tests/ -v
+```
+
+真实系统 smoke test:
+
+```bash
+BASE_URL=http://127.0.0.1:8000 bash scripts/smoke_test.sh
 ```
 
 依赖安全扫描:

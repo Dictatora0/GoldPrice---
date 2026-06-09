@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GITIGNORE = ROOT / ".gitignore"
 MANAGE_SH = ROOT / "manage.sh"
+SMOKE_TEST = ROOT / "scripts" / "smoke_test.sh"
 
 
 def test_gitignore_exists_and_covers_generated_artifacts():
@@ -54,3 +55,17 @@ def test_manage_script_routes_cleanup_backfill_command():
 
     assert "run_cleanup_backfill()" in content
     assert "cleanup-backfill)" in content
+
+
+def test_smoke_test_script_covers_real_system_flow():
+    assert SMOKE_TEST.exists(), "scripts/smoke_test.sh should exist"
+    content = SMOKE_TEST.read_text(encoding="utf-8")
+
+    assert "run.py --init-db" in content
+    assert "./manage.sh start" in content
+    assert "collect_job" in content
+    assert "/api/health" in content
+    assert "/api/price/current" in content
+    assert "/api/price/sources/latest" in content
+    assert "/api/analysis/indicators" in content
+    assert 'fetch "/"' in content

@@ -102,3 +102,4 @@ def test_decision_core_exposes_probability_source():
 
     assert decision["probability_source"] in {"heuristic", "logistic_regression"}
     assert "heuristic_upside_probability" in decision
+    assert decision["probability_horizon_days"] == 7

@@ -964,6 +964,7 @@ class MarketAdvisor:
             "confirmation_flags": decision_core["confirmation_flags"],
             "regime": decision_core["regime"],
             "upside_probability": decision_core["upside_probability"],
+            "probability_horizon_days": decision_core.get("probability_horizon_days"),
             "downside_risk_bp": decision_core["downside_risk_bp"],
             "expected_return_bp": decision_core["expected_return_bp"],
             "suggested_position_pct": decision_core["suggested_position_pct"],

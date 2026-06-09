@@ -1,4 +1,4 @@
-from config import settings
+from config import Settings
 from run import parse_args
 
 
@@ -29,4 +29,4 @@ def test_parse_args_supports_cleanup_backfill():
 
 
 def test_collection_interval_default_is_30_seconds():
-    assert settings.collection_interval == 30
+    assert Settings(_env_file=None).collection_interval == 30

@@ -68,6 +68,18 @@ def _pearson_correlation(pairs: Iterable[tuple[float, float]]) -> Optional[float
     return numerator / denominator
 
 
+def _regime_label(alignment: Optional[str], risk_flags: set[str]) -> str:
+    if "falling_knife" in risk_flags:
+        return "飞刀风险"
+    if alignment == "bullish_aligned":
+        return "多头共振"
+    if alignment == "bearish_aligned":
+        return "空头承压"
+    if alignment == "mixed":
+        return "震荡混合"
+    return "未知状态"
+
+
 def calculate_forward_returns_from_series(
     *,
     signal_time: datetime,
@@ -150,6 +162,7 @@ def calculate_signal_backtest(
                     "win_rate_pct": None,
                     "avg_return_pct": None,
                 },
+                "regime_breakdown": [],
                 "generated_at": datetime.now().isoformat(),
             }
 
@@ -182,6 +195,7 @@ def calculate_signal_backtest(
                 "win_rate_pct": None,
                 "avg_return_pct": None,
             },
+            "regime_breakdown": [],
             "generated_at": datetime.now().isoformat(),
         }
 
@@ -189,7 +203,9 @@ def calculate_signal_backtest(
     price_values = [float(row[1]) for row in price_rows]
 
     horizon_samples: dict[int, list[dict[str, float]]] = defaultdict(list)
+    regime_samples: dict[str, list[dict[str, float]]] = defaultdict(list)
     evaluated_signal_ids: set[int] = set()
+    primary_horizon = 7 if 7 in normalized_horizons else normalized_horizons[0]
 
     for signal_id, signal_time, signal_price_raw, indicators_raw in signals:
         signal_price = _safe_float(signal_price_raw)
@@ -198,6 +214,10 @@ def calculate_signal_backtest(
 
         indicator_payload = decode_signal_indicators(indicators_raw)
         signal_score = _safe_float(indicator_payload.get("evaluation_score"))
+        regime_label = _regime_label(
+            indicator_payload.get("timeframe_analysis", {}).get("alignment"),
+            set(indicator_payload.get("risk_flags", [])),
+        )
 
         forward_returns = calculate_forward_returns_from_series(
             signal_time=signal_time,
@@ -214,6 +234,13 @@ def calculate_signal_backtest(
                     "score": signal_score if signal_score is not None else float("nan"),
                 }
             )
+            if horizon_days == primary_horizon:
+                regime_samples[regime_label].append(
+                    {
+                        "return_pct": sample["return_pct"],
+                        "drawdown_pct": sample["drawdown_pct"],
+                    }
+                )
             evaluated_signal_ids.add(signal_id)
 
     horizon_stats: list[dict[str, Any]] = []
@@ -257,7 +284,6 @@ def calculate_signal_backtest(
             }
         )
 
-    primary_horizon = 7 if 7 in normalized_horizons else normalized_horizons[0]
     primary_samples = horizon_samples.get(primary_horizon, [])
     high_score_samples = [
         sample
@@ -292,6 +318,24 @@ def calculate_signal_backtest(
         "evaluated_signal_count": len(evaluated_signal_ids),
         "horizon_stats": horizon_stats,
         "high_score_segment": high_score_segment,
+        "regime_breakdown": [
+            {
+                "label": label,
+                "horizon_days": primary_horizon,
+                "sample_count": len(samples),
+                "win_rate_pct": _round_optional(
+                    sum(1 for item in samples if item["return_pct"] > 0) / len(samples) * 100
+                ),
+                "avg_return_pct": _round_optional(mean(item["return_pct"] for item in samples)),
+                "max_drawdown_pct": _round_optional(min(item["drawdown_pct"] for item in samples)),
+            }
+            for label, samples in sorted(
+                regime_samples.items(),
+                key=lambda item: len(item[1]),
+                reverse=True,
+            )
+            if samples
+        ],
         "generated_at": datetime.now().isoformat(),
     }
 

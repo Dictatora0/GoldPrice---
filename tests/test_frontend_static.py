@@ -117,6 +117,11 @@ def test_signal_state_has_live_attention_animation():
 def test_dashboard_has_market_brief_slots():
     html = INDEX_HTML.read_text(encoding="utf-8")
 
+    assert 'id="decision-strip"' in html
+    assert 'id="decision-current-price"' in html
+    assert 'id="decision-current-advice"' in html
+    assert 'id="decision-primary-source"' in html
+    assert 'id="decision-action"' in html
     assert 'id="source-quality-level"' in html
     assert 'id="source-quality-score"' in html
     assert 'id="source-quality-summary"' in html
@@ -137,6 +142,12 @@ def test_dashboard_has_market_brief_slots():
 def test_dashboard_chart_script_renders_market_brief():
     script = CHART_JS.read_text(encoding="utf-8")
 
+    assert "function escapeHtml" in script
+    assert "function updateDecisionStrip" in script
+    assert 'getEl("decision-current-price")' in script
+    assert 'getEl("decision-current-advice")' in script
+    assert 'getEl("decision-primary-source")' in script
+    assert 'getEl("decision-action")' in script
     assert 'fetchJSON("/api/price/sources/latest", signal)' in script
     assert "function updateSourceQuality(panelData)" in script
     assert 'getEl("source-quality-level")' in script
@@ -228,6 +239,8 @@ def test_dashboard_has_signal_debug_slots():
 def test_dashboard_has_signal_performance_and_sr_slots():
     html = INDEX_HTML.read_text(encoding="utf-8")
 
+    assert "<details" in html
+    assert 'class="details-panel"' in html
     assert 'id="backtest-window"' in html
     assert 'id="backtest-signal-count"' in html
     assert 'id="backtest-evaluated-count"' in html
@@ -261,6 +274,7 @@ def test_dashboard_has_signal_performance_and_sr_slots():
     assert 'id="forecast-expected"' in html
     assert 'id="forecast-prob-up"' in html
     assert 'id="forecast-range"' in html
+    assert 'id="forecast-confidence"' in html
     assert 'id="forecast-scenario"' in html
     assert 'id="entry-plan-form"' in html
     assert 'id="entry-plan-summary"' in html
@@ -281,6 +295,11 @@ def test_dashboard_has_signal_performance_and_sr_slots():
 def test_dashboard_chart_script_renders_performance_and_sr_panels():
     script = CHART_JS.read_text(encoding="utf-8")
 
+    assert "escapeHtml(" in script
+    assert "panelData.domestic_global_return_corr" in script
+    assert 'getEl("forecast-confidence")' in script
+    assert "panelData.confidence" in script
+    assert "execution_gate" in script
     assert "function updateSignalPerformance(performance)" in script
     assert "function updateConfidenceCenter(panelData)" in script
     assert "regime_breakdown" in script
@@ -365,6 +384,10 @@ def test_signal_debug_styles_define_panels_and_flag_lists():
 def test_performance_and_sr_styles_are_defined():
     css = STYLE_CSS.read_text(encoding="utf-8")
 
+    assert ".decision-strip" in css
+    assert ".decision-tile" in css
+    assert ".details-panel" in css
+    assert ".details-panel summary" in css
     assert ".signal-performance" in css
     assert ".sr-panel" in css
     assert ".performance-overview" in css

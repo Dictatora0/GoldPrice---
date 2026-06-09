@@ -324,6 +324,24 @@ def test_signals_endpoint_filters_malformed_signal_records(client):
     assert data["items"][0]["indicators"]["evaluation_score"] == 72
 
 
+def test_indicators_endpoint_returns_basis_metadata(client):
+    now = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
+    seed_price_history(
+        [
+            (now - timedelta(days=99 - offset), 500.0 + offset)
+            for offset in range(100)
+        ]
+    )
+
+    response = client.get("/api/analysis/indicators")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["status"] == "ok"
+    assert payload["items"]["basis_interval"] == "1d"
+    assert payload["items"]["sample_count"] == 100
+
+
 def test_signal_performance_endpoint_returns_backtest_stats(client):
     now = datetime.now().replace(second=0, microsecond=0)
     base_price = 500.0
@@ -459,6 +477,8 @@ def test_macro_correlation_endpoint_returns_data_shape(client):
     assert payload["premium_cny_per_gram"] is not None
     assert payload["premium_pct"] is not None
     assert payload["domestic_global_corr"] is not None
+    assert payload["domestic_global_return_corr"] is not None
+    assert payload["correlation_basis"] == "return_pct"
     assert "macro_hint" in payload
     assert isinstance(payload.get("recent_points"), list)
 
@@ -482,6 +502,10 @@ def test_multi_timeframe_forecast_and_entry_plan_endpoints(client):
     assert forecast_resp.status_code == 200
     assert forecast_data["current_price"] is not None
     assert forecast_data["expected_price"] is not None
+    assert forecast_data["basis_interval"] == "1d"
+    assert forecast_data["sample_count"] == 120
+    assert forecast_data["confidence"]["level"] in {"high", "medium", "low", "insufficient"}
+    assert "reason" in forecast_data["confidence"]
     assert forecast_data["forecast_range"]["lower"] is not None
     assert forecast_data["forecast_range"]["upper"] is not None
 
@@ -491,6 +515,8 @@ def test_multi_timeframe_forecast_and_entry_plan_endpoints(client):
     entry_plan_data = entry_plan_resp.json()["data"]
     assert entry_plan_resp.status_code == 200
     assert entry_plan_data["current_price"] is not None
+    assert entry_plan_data["execution_gate"]["status"] in {"ready", "watch", "blocked", "unavailable"}
+    assert "message" in entry_plan_data["execution_gate"]
     assert len(entry_plan_data["plan"]) == 3
     assert entry_plan_data["summary"]["avg_entry_price"] is not None
 
@@ -533,6 +559,43 @@ def test_confidence_center_endpoint_returns_audit_view(client):
         first_match = payload["similar_history"]["matches"][0]
         assert "forward_returns" in first_match
         assert "primary_horizon_return_pct" in first_match
+
+
+def test_signal_performance_exposes_regime_breakdown(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    prices = []
+    for offset in range(0, 80):
+        prices.append((now - timedelta(days=79 - offset), 520.0 + offset * 1.1))
+    seed_price_history(prices)
+
+    for days_ago, alignment, risk_flags in [
+        (20, "bullish_aligned", []),
+        (16, "mixed", []),
+        (12, "bearish_aligned", ["falling_knife"]),
+    ]:
+        signal_time = now - timedelta(days=days_ago)
+        signal_price = next(price for ts, price in prices if ts == signal_time)
+        seed_signal(
+            signal_time,
+            signal_price,
+            indicators={
+                "current_price": signal_price,
+                "evaluation_score": 76,
+                "evaluation_reasons": ["状态分层样本"],
+                "risk_flags": risk_flags,
+                "momentum": {"trend": "up", "change_pct": 0.4, "acceleration": 0.01},
+                "timeframe_analysis": {"alignment": alignment},
+            },
+            notified=False,
+        )
+
+    response = client.get("/api/analysis/signal-performance?window_days=180&horizons=3,7,30")
+    payload = response.json()["data"]
+
+    assert response.status_code == 200
+    assert "regime_breakdown" in payload
+    labels = {item["label"] for item in payload["regime_breakdown"]}
+    assert {"多头共振", "震荡混合", "飞刀风险"}.issubset(labels)
 
 
 def test_confidence_center_similar_history_includes_realized_returns(client):

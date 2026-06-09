@@ -153,7 +153,7 @@ def evaluate_decision_core(
         "momentum": momentum_context,
         "timeframe_analysis": timeframe_context,
     }
-    model_probability, probability_source, probability_samples = predict_upside_probability(
+    model_probability, probability_source, probability_samples, probability_horizon_days = predict_upside_probability(
         probability_input,
         heuristic_probability,
     )
@@ -188,6 +188,7 @@ def evaluate_decision_core(
         "heuristic_upside_probability": heuristic_probability,
         "probability_source": probability_source,
         "probability_samples": probability_samples,
+        "probability_horizon_days": probability_horizon_days,
         "downside_risk_bp": downside_risk_bp,
         "expected_return_bp": expected_return_bp,
         "suggested_position_pct": float(suggested_position_pct),

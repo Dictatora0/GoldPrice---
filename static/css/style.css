@@ -182,6 +182,49 @@ h1 {
   grid-column: span 2;
 }
 
+.decision-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.decision-tile {
+  position: relative;
+  overflow: hidden;
+  min-height: 128px;
+  display: grid;
+  align-content: space-between;
+  gap: 8px;
+  padding: 18px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(129, 167, 209, 0.24);
+  background:
+    radial-gradient(circle at 82% 12%, rgba(43, 200, 186, 0.13), transparent 34%),
+    linear-gradient(150deg, rgba(12, 22, 37, 0.93), rgba(7, 13, 23, 0.9));
+  box-shadow: var(--elevation-1);
+}
+
+.decision-tile-primary {
+  border-color: rgba(242, 178, 76, 0.36);
+  background:
+    radial-gradient(circle at 78% 16%, rgba(242, 178, 76, 0.18), transparent 38%),
+    linear-gradient(150deg, rgba(20, 28, 42, 0.96), rgba(8, 14, 24, 0.92));
+}
+
+.decision-value {
+  color: var(--text-0);
+  font-family: var(--font-display);
+  font-size: clamp(20px, 2vw, 29px);
+  line-height: 1.08;
+  letter-spacing: 0.005em;
+}
+
+.decision-note {
+  color: var(--text-1);
+  font-size: 12px;
+  line-height: 1.42;
+}
+
 .lower-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -229,6 +272,52 @@ h1 {
 .forecast-panel,
 .entry-plan-panel {
   grid-column: 1 / -1;
+}
+
+.details-panel {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(112deg, rgba(43, 200, 186, 0.045), transparent 42%),
+    linear-gradient(180deg, rgba(9, 16, 28, 0.72), rgba(7, 13, 23, 0.66));
+  box-shadow: var(--elevation-1);
+  overflow: hidden;
+}
+
+.details-panel summary {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(129, 167, 209, 0.18);
+  color: var(--text-0);
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.details-panel summary::marker {
+  color: var(--tone-gold);
+}
+
+.details-panel summary small {
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-align: right;
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
+  padding: 16px;
 }
 
 .card {
@@ -1024,6 +1113,10 @@ h1 {
     grid-column: span 4;
   }
 
+  .decision-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   #market-brief,
   .indicator-quicklook,
   #signal-debug {
@@ -1058,6 +1151,10 @@ h1 {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
+  .decision-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .hero-price {
     grid-column: span 6;
   }
@@ -1081,6 +1178,10 @@ h1 {
 
   .signal-history {
     grid-column: 1 / -1;
+  }
+
+  .details-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .chart-wrap {
@@ -1107,7 +1208,8 @@ h1 {
   }
 
   .hero-grid,
-  .lower-grid {
+  .lower-grid,
+  .decision-strip {
     grid-template-columns: 1fr;
     gap: 12px;
   }
@@ -1129,6 +1231,16 @@ h1 {
   .forecast-panel,
   .entry-plan-panel {
     grid-column: 1 / -1;
+  }
+
+  .details-grid {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .details-panel summary {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .chart-wrap {

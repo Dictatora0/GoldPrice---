@@ -41,8 +41,17 @@ def get_indicators():
     indicators = calculator.calculate_all_cached()
     if not indicators:
         return {"status": "insufficient_data", "items": {}}
-    # Convert numpy types to native for JSON
-    cleaned = {k: (float(v) if v is not None else None) for k, v in indicators.items()}
+    cleaned = {}
+    for key, value in indicators.items():
+        if value is None or isinstance(value, (str, int)):
+            cleaned[key] = value
+        elif isinstance(value, float):
+            cleaned[key] = float(value)
+        else:
+            try:
+                cleaned[key] = float(value)
+            except (TypeError, ValueError):
+                cleaned[key] = value
     return {"status": "ok", "items": cleaned}
 
 

@@ -7,9 +7,11 @@ from typing import Any, Optional
 
 import numpy as np
 
+from app.analyzers.advisor import MarketAdvisor
 from app.analyzers.performance import calculate_support_resistance
 from app.database import get_db_session
 from app.models import PriceHistory
+from app.price_series import load_price_series
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -38,17 +40,83 @@ def _normal_cdf(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 
-def _load_prices(*, lookback_days: int, limit: int = 5000) -> list[tuple[datetime, float]]:
-    start_time = datetime.now() - timedelta(days=lookback_days)
-    with get_db_session(read_only=True) as session:
-        rows = (
-            session.query(PriceHistory.timestamp, PriceHistory.price_cny_per_gram)
-            .filter(PriceHistory.timestamp >= start_time)
-            .order_by(PriceHistory.timestamp.asc())
-            .limit(limit)
-            .all()
-        )
-    return [(ts, float(price)) for ts, price in rows if _safe_float(price) and float(price) > 0]
+def _forecast_confidence(sample_count: int, *, basis_interval: str) -> dict[str, Any]:
+    if sample_count < 30:
+        level = "insufficient"
+        reason = "日线样本少于30条，预测只适合作为方向观察。"
+    elif sample_count < 90:
+        level = "low"
+        reason = "日线样本不足90条，概率和区间可信度偏低。"
+    elif sample_count < 180:
+        level = "medium"
+        reason = "日线样本达到中等规模，可用于短期情景参考。"
+    else:
+        level = "high"
+        reason = "日线样本较充足，预测区间相对稳定。"
+    return {
+        "level": level,
+        "sample_count": sample_count,
+        "basis_interval": basis_interval,
+        "reason": reason,
+    }
+
+
+def _build_execution_gate() -> dict[str, Any]:
+    try:
+        advice = MarketAdvisor().analyze_cached()
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "message": f"当前建议不可用，入场计划仅作为价格计算参考。原因：{exc}",
+            "recommendation": None,
+            "entry_ready": False,
+            "risk_flags": [],
+        }
+
+    if not advice:
+        return {
+            "status": "unavailable",
+            "message": "当前建议不可用，入场计划仅作为价格计算参考。",
+            "recommendation": None,
+            "entry_ready": False,
+            "risk_flags": [],
+        }
+
+    recommendation = advice.get("recommendation")
+    risk_flags = list(advice.get("risk_flags", []))
+    entry_ready = bool(advice.get("entry_ready"))
+    if "falling_knife" in risk_flags or recommendation in {"不推荐", "强烈不推荐"}:
+        status = "blocked"
+        message = "当前建议不满足入场条件，分批计划仅用于预案，不建议立即执行。"
+    elif recommendation in {"强烈推荐买入", "推荐买入"} and entry_ready:
+        status = "ready"
+        message = "当前建议与入场确认匹配，可按计划小仓分批执行。"
+    else:
+        status = "watch"
+        message = "当前仍偏观察，建议先设置预警，等待确认信号后再执行分批计划。"
+
+    return {
+        "status": status,
+        "message": message,
+        "recommendation": recommendation,
+        "entry_ready": entry_ready,
+        "risk_flags": risk_flags,
+    }
+
+
+def _load_prices(
+    *,
+    lookback_days: int,
+    limit: int = 5000,
+    interval: str = "raw",
+) -> list[tuple[datetime, float]]:
+    series = load_price_series(
+        lookback_days=lookback_days,
+        interval=interval,
+        limit=limit,
+        apply_regime_filter=True,
+    )
+    return [(point.timestamp, point.price) for point in series.points]
 
 
 def calculate_multi_timeframe(
@@ -56,7 +124,7 @@ def calculate_multi_timeframe(
     windows: list[int] | tuple[int, ...] = (1, 7, 30),
     lookback_days: int = 180,
 ) -> dict[str, Any]:
-    prices = _load_prices(lookback_days=lookback_days)
+    prices = _load_prices(lookback_days=lookback_days, interval="raw")
     if len(prices) < 2:
         return {
             "lookback_days": lookback_days,
@@ -155,12 +223,15 @@ def calculate_price_forecast(
     confidence_z: float = 1.645,
     simulation_paths: int = 400,
 ) -> dict[str, Any]:
-    prices = _load_prices(lookback_days=lookback_days)
+    basis_interval = "1d"
+    prices = _load_prices(lookback_days=lookback_days, interval=basis_interval)
     if len(prices) < 3:
         return {
             "lookback_days": lookback_days,
             "horizon_days": horizon_days,
+            "basis_interval": basis_interval,
             "sample_count": len(prices),
+            "confidence": _forecast_confidence(len(prices), basis_interval=basis_interval),
             "current_price": None,
             "expected_price": None,
             "expected_change_pct": None,
@@ -190,7 +261,9 @@ def calculate_price_forecast(
         return {
             "lookback_days": lookback_days,
             "horizon_days": horizon_days,
+            "basis_interval": basis_interval,
             "sample_count": len(close_prices),
+            "confidence": _forecast_confidence(len(close_prices), basis_interval=basis_interval),
             "current_price": round(current, 3),
             "expected_price": round(current, 3),
             "expected_change_pct": 0.0,
@@ -248,7 +321,9 @@ def calculate_price_forecast(
     return {
         "lookback_days": lookback_days,
         "horizon_days": horizon,
+        "basis_interval": basis_interval,
         "sample_count": len(close_prices),
+        "confidence": _forecast_confidence(len(close_prices), basis_interval=basis_interval),
         "current_price": _round_optional(current),
         "expected_price": _round_optional(expected_price),
         "expected_change_pct": _round_optional(expected_change_pct),
@@ -289,6 +364,13 @@ def calculate_entry_plan(
             "batches": batches,
             "step_pct": step_pct,
             "target_profit_pct": target_profit_pct,
+            "execution_gate": {
+                "status": "unavailable",
+                "message": "暂无价格数据，无法判断入场条件。",
+                "recommendation": None,
+                "entry_ready": False,
+                "risk_flags": [],
+            },
             "plan": [],
             "summary": {
                 "avg_entry_price": None,
@@ -302,6 +384,7 @@ def calculate_entry_plan(
         }
 
     current_price = float(latest[1])
+    execution_gate = _build_execution_gate()
     batches = max(1, min(10, int(batches)))
     step_pct = max(0.2, min(20.0, float(step_pct)))
     target_profit_pct = max(0.5, min(40.0, float(target_profit_pct)))
@@ -351,6 +434,7 @@ def calculate_entry_plan(
         "batches": batches,
         "step_pct": _round_optional(step_pct, 2),
         "target_profit_pct": _round_optional(target_profit_pct, 2),
+        "execution_gate": execution_gate,
         "nearest_support": nearest_support,
         "nearest_resistance": nearest_resistance,
         "plan": batch_plan,

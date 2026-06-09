@@ -15,7 +15,10 @@ _MODEL_CACHE: dict = {
     "model": None,
     "samples": 0,
     "expires_at": None,
+    "horizon_days": None,
 }
+
+DEFAULT_PROBABILITY_HORIZON_DAYS = 7
 
 
 def _safe_float(value, default: float = 0.0) -> float:
@@ -58,7 +61,7 @@ def _extract_features_from_payload(indicators: Dict) -> list[float]:
 
 def _build_training_samples(
     *,
-    horizon_minutes: int = 120,
+    horizon_days: int = DEFAULT_PROBABILITY_HORIZON_DAYS,
     max_signals: int = 800,
 ) -> tuple[list[list[float]], list[int]]:
     with get_db_session(read_only=True) as session:
@@ -77,7 +80,7 @@ def _build_training_samples(
             return [], []
 
         signals = list(reversed(signals))
-        min_target = signals[0][0] + timedelta(minutes=horizon_minutes)
+        min_target = signals[0][0] + timedelta(days=horizon_days)
         price_rows = (
             session.query(PriceHistory.timestamp, PriceHistory.price_cny_per_gram)
             .filter(PriceHistory.timestamp >= min_target)
@@ -97,7 +100,7 @@ def _build_training_samples(
     for signal_timestamp, signal_price, indicators_raw in signals:
         if signal_price is None:
             continue
-        target_time = signal_timestamp + timedelta(minutes=horizon_minutes)
+        target_time = signal_timestamp + timedelta(days=horizon_days)
         idx = bisect.bisect_left(price_timestamps, target_time)
         if idx >= len(price_values):
             continue
@@ -123,8 +126,10 @@ def _build_training_samples(
     return features, labels
 
 
-def _train_logistic_model() -> tuple[Optional[LogisticRegression], int]:
-    features, labels = _build_training_samples()
+def _train_logistic_model(
+    *, horizon_days: int = DEFAULT_PROBABILITY_HORIZON_DAYS
+) -> tuple[Optional[LogisticRegression], int]:
+    features, labels = _build_training_samples(horizon_days=horizon_days)
     if len(features) < 60:
         return None, len(features)
     if len(set(labels)) < 2:
@@ -145,39 +150,48 @@ def _get_latest_signal_timestamp() -> Optional[datetime]:
     return latest[0] if latest else None
 
 
-def _get_cached_model() -> tuple[Optional[LogisticRegression], int]:
+def _get_cached_model(
+    *, horizon_days: int = DEFAULT_PROBABILITY_HORIZON_DAYS
+) -> tuple[Optional[LogisticRegression], int]:
     now = datetime.now()
     latest_ts = _get_latest_signal_timestamp()
 
     if (
         _MODEL_CACHE.get("model") is not None
         and _MODEL_CACHE.get("as_of") == latest_ts
+        and _MODEL_CACHE.get("horizon_days") == horizon_days
         and _MODEL_CACHE.get("expires_at") is not None
         and _MODEL_CACHE.get("expires_at") > now
     ):
         return _MODEL_CACHE["model"], int(_MODEL_CACHE.get("samples", 0))
 
-    model, sample_count = _train_logistic_model()
+    model, sample_count = _train_logistic_model(horizon_days=horizon_days)
     _MODEL_CACHE["model"] = model
     _MODEL_CACHE["samples"] = sample_count
     _MODEL_CACHE["as_of"] = latest_ts
+    _MODEL_CACHE["horizon_days"] = horizon_days
     _MODEL_CACHE["expires_at"] = now + timedelta(minutes=10)
     return model, sample_count
 
 
-def predict_upside_probability(feature_payload: Dict, fallback_probability: float) -> tuple[float, str, int]:
+def predict_upside_probability(
+    feature_payload: Dict,
+    fallback_probability: float,
+    *,
+    horizon_days: int = DEFAULT_PROBABILITY_HORIZON_DAYS,
+) -> tuple[float, str, int, int]:
     try:
-        model, sample_count = _get_cached_model()
+        model, sample_count = _get_cached_model(horizon_days=horizon_days)
     except Exception:
-        return fallback_probability, "heuristic", 0
+        return fallback_probability, "heuristic", 0, horizon_days
 
     if model is None:
-        return fallback_probability, "heuristic", sample_count
+        return fallback_probability, "heuristic", sample_count, horizon_days
 
     try:
         vector = np.asarray([_extract_features_from_payload(feature_payload)])
         probability = float(model.predict_proba(vector)[0][1])
     except Exception:
-        return fallback_probability, "heuristic", sample_count
+        return fallback_probability, "heuristic", sample_count, horizon_days
 
-    return probability, "logistic_regression", sample_count
+    return probability, "logistic_regression", sample_count, horizon_days

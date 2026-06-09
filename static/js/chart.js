@@ -24,6 +24,15 @@ function getEl(id) {
   return document.getElementById(id);
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function updateStatus(text, mode) {
   const status = getEl("status-pill");
   if (!status) return;
@@ -103,6 +112,41 @@ function formatAlertThreshold(ruleType, threshold) {
     return `${numeric.toFixed(2)}%`;
   }
   return `¥${numeric.toFixed(2)}`;
+}
+
+function resolvePrimarySourceLabel(sourceQuality) {
+  const primarySource = sourceQuality?.primary_source || null;
+  if (primarySource?.status === "available") {
+    return primarySource.display_name || primarySource.name || "SGE 官网延时行情";
+  }
+  if (primarySource?.status === "missing") {
+    return "主源缺席";
+  }
+
+  const sources = Array.isArray(sourceQuality?.sources) ? sourceQuality.sources : [];
+  const validPrimarySources = sources.filter(
+    (item) => item && item.is_valid && item.trust_tier === "high" && !item.is_backup
+  );
+  const preferredPrimarySource =
+    validPrimarySources.find((item) => item.name === "sge_official") || validPrimarySources[0] || null;
+  return preferredPrimarySource
+    ? preferredPrimarySource.display_name || preferredPrimarySource.name
+    : "主源缺席";
+}
+
+function updateDecisionStrip({ current, advice, sourceQuality }) {
+  const priceEl = getEl("decision-current-price");
+  const adviceEl = getEl("decision-current-advice");
+  const sourceEl = getEl("decision-primary-source");
+  const actionEl = getEl("decision-action");
+
+  if (!priceEl || !adviceEl || !sourceEl || !actionEl) return;
+
+  const latestPrice = Number(current?.price_cny_per_gram ?? current?.price);
+  priceEl.textContent = Number.isFinite(latestPrice) ? formatPrice(latestPrice) : "--";
+  adviceEl.textContent = advice?.recommendation || "分析中";
+  sourceEl.textContent = `当前主源：${resolvePrimarySourceLabel(sourceQuality)}`;
+  actionEl.textContent = advice?.action_label || "等待建议";
 }
 
 function simpleMovingAverage(values, windowSize) {
@@ -261,9 +305,11 @@ function updateSourceQuality(panelData) {
           const recentValidRate = Number.isFinite(Number(item.health?.recent_valid_rate_pct))
             ? ` · 健康率 ${Number(item.health.recent_valid_rate_pct).toFixed(0)}%`
             : "";
-          return `<li>${item.display_name} · ¥${Number(item.price_cny_per_gram).toFixed(
+          return `<li>${escapeHtml(item.display_name)} · ¥${Number(item.price_cny_per_gram).toFixed(
             2
-          )} · ${item.trust_tier} 可信 · ${validity}${backup}${recentValidRate}</li>`;
+          )} · ${escapeHtml(item.trust_tier)} 可信 · ${escapeHtml(validity)}${escapeHtml(
+            backup
+          )}${escapeHtml(recentValidRate)}</li>`;
         })
         .join("")
     : "<li>暂无数据源明细</li>";
@@ -554,7 +600,9 @@ function updateConfidenceCenter(panelData) {
               : check.status === "warn"
               ? "risk-watch"
               : "risk-danger";
-          return `<span class="risk-chip ${checkTone}">${check.name}: ${check.detail}</span>`;
+          return `<span class="risk-chip ${checkTone}">${escapeHtml(check.name)}: ${escapeHtml(
+            check.detail
+          )}</span>`;
         })
         .join("")
     : '<span class="risk-chip risk-watch">暂无检查结果</span>';
@@ -566,7 +614,7 @@ function updateConfidenceCenter(panelData) {
           const currentChip = item.is_current
             ? ' <span class="risk-chip risk-safe">当前状态</span>'
             : "";
-          return `<li>${item.label} · 样本 ${sampleCount} · 胜率 ${formatPctCompact(
+          return `<li>${escapeHtml(item.label)} · 样本 ${sampleCount} · 胜率 ${formatPctCompact(
             item.win_rate_pct
           )} · 平均收益 ${formatPctCompact(item.avg_return_pct)}${currentChip}</li>`;
         })
@@ -579,7 +627,9 @@ function updateConfidenceCenter(panelData) {
   historyEl.innerHTML = matches.length
     ? matches
         .map((item) => {
-          const reasons = Array.isArray(item.reasons) && item.reasons.length ? ` · ${item.reasons.join(" / ")}` : "";
+          const reasons = Array.isArray(item.reasons) && item.reasons.length
+            ? ` · ${escapeHtml(item.reasons.join(" / "))}`
+            : "";
           const score = Number.isFinite(Number(item.score)) ? ` · 评分 ${Number(item.score).toFixed(0)}` : "";
           const realized = item.primary_horizon_return_pct == null
             ? ""
@@ -587,7 +637,7 @@ function updateConfidenceCenter(panelData) {
           return `<li>${new Date(item.timestamp).toLocaleDateString()} · ¥${Number(item.price_cny_per_gram).toFixed(2)}${score}${realized}${reasons}</li>`;
         })
         .join("")
-    : `<li>${panelData.similar_history?.summary || "未找到相似历史样本"}</li>`;
+    : `<li>${escapeHtml(panelData.similar_history?.summary || "未找到相似历史样本")}</li>`;
 }
 
 function levelToneClass(kind) {
@@ -630,7 +680,9 @@ function renderSupportResistanceList(levelData) {
   listEl.innerHTML = rows
     .map(
       (row) =>
-        `<li class="${levelToneClass(row.kind)}">${row.label} · ¥${Number(row.price).toFixed(2)} · 强度 ${Number(row.strength || 0)}</li>`
+        `<li class="${levelToneClass(row.kind)}">${escapeHtml(row.label)} · ¥${Number(
+          row.price
+        ).toFixed(2)} · 强度 ${Number(row.strength || 0)}</li>`
     )
     .join("");
 }
@@ -702,8 +754,10 @@ function renderCustomAlertList(items) {
       const channels = Array.isArray(row.channels) ? row.channels.join("/") : "system";
       const threshold = formatAlertThreshold(row.rule_type, row.threshold);
       return `<li data-alert-id="${row.id}">
-        #${row.id} · ${row.name} · ${prettifyAlertType(row.rule_type)} ${threshold}
-        · 冷却 ${row.cooldown_minutes}m · ${channels} · ${enabledText}
+        #${Number(row.id)} · ${escapeHtml(row.name)} · ${escapeHtml(
+          prettifyAlertType(row.rule_type)
+        )} ${escapeHtml(threshold)}
+        · 冷却 ${Number(row.cooldown_minutes)}m · ${escapeHtml(channels)} · ${escapeHtml(enabledText)}
         <button data-action="toggle" data-id="${row.id}" data-enabled="${row.enabled}">${row.enabled ? "停用" : "启用"}</button>
         <button data-action="delete" data-id="${row.id}">删除</button>
       </li>`;
@@ -725,10 +779,12 @@ function renderAlertDeliveryList(items) {
     .map((row) => {
       const createdAt = row.created_at ? new Date(row.created_at).toLocaleString() : "--";
       const statusClass = row.status === "success" ? "delivery-success" : "delivery-failed";
-      const errorText = row.error_message ? ` · ${row.error_message}` : "";
+      const errorText = row.error_message ? ` · ${escapeHtml(row.error_message)}` : "";
       return `<li class="${statusClass}">
-        ${createdAt} · ${row.channel} · ${row.status} · #${row.rule_name}
-        · attempt ${row.attempt}/${row.max_attempts}${errorText}
+        ${escapeHtml(createdAt)} · ${escapeHtml(row.channel)} · ${escapeHtml(
+          row.status
+        )} · #${escapeHtml(row.rule_name)}
+        · attempt ${Number(row.attempt)}/${Number(row.max_attempts)}${errorText}
       </li>`;
     })
     .join("");
@@ -804,11 +860,17 @@ function updateMacroCorrelation(panelData) {
       ? "--"
       : `${formatSignedNumber(panelData.premium_cny_per_gram, 2)} (${formatPctCompact(panelData.premium_pct)})`;
   corrEl.textContent =
-    panelData.domestic_global_corr == null ? "--" : Number(panelData.domestic_global_corr).toFixed(3);
+    panelData.domestic_global_return_corr == null && panelData.domestic_global_corr == null
+      ? "--"
+      : Number(panelData.domestic_global_return_corr ?? panelData.domestic_global_corr).toFixed(3);
   usdCloseEl.textContent =
     panelData.usd_proxy?.close == null ? "--" : Number(panelData.usd_proxy.close).toFixed(4);
   usdChangeEl.textContent = formatPctCompact(panelData.usd_proxy?.change_pct);
-  hintEl.textContent = panelData.macro_hint || "暂无宏观提示";
+  const sampleNote =
+    panelData.sample_count == null
+      ? ""
+      : ` · 样本 ${Number(panelData.sample_count)} · ${panelData.correlation_basis || "return_pct"}`;
+  hintEl.textContent = `${panelData.macro_hint || "暂无宏观提示"}${sampleNote}`;
 }
 
 function prettifyAlignment(alignment) {
@@ -849,7 +911,7 @@ function updateMultiTimeframe(panelData) {
 
   listEl.innerHTML = rows
     .map((row) => {
-      return `<li>${row.window_days}天 · ${row.trend} · 收益 ${formatPctCompact(
+      return `<li>${Number(row.window_days)}天 · ${escapeHtml(row.trend)} · 收益 ${formatPctCompact(
         row.return_pct
       )} · 波动 ${formatPctCompact(row.volatility_pct)}</li>`;
     })
@@ -862,7 +924,8 @@ function updateForecast(panelData) {
   const probEl = getEl("forecast-prob-up");
   const rangeEl = getEl("forecast-range");
   const scenarioEl = getEl("forecast-scenario");
-  if (!currentEl || !expectedEl || !probEl || !rangeEl || !scenarioEl) return;
+  const confidenceEl = getEl("forecast-confidence");
+  if (!currentEl || !expectedEl || !probEl || !rangeEl || !scenarioEl || !confidenceEl) return;
 
   if (!panelData) {
     currentEl.textContent = "--";
@@ -870,6 +933,7 @@ function updateForecast(panelData) {
     probEl.textContent = "--";
     rangeEl.textContent = "--";
     scenarioEl.textContent = "等待预测情景分析";
+    confidenceEl.textContent = "等待预测可信度评估";
     return;
   }
 
@@ -888,6 +952,21 @@ function updateForecast(panelData) {
   scenarioEl.textContent = `P10/P50/P90: ${formatPrice(scenario.p10)} / ${formatPrice(
     scenario.p50
   )} / ${formatPrice(scenario.p90)}；+5%约需 ${scenario.days_to_gain_5pct ?? "--"} 天`;
+
+  const confidence = panelData.confidence || {};
+  const levelMap = {
+    insufficient: "样本不足",
+    low: "低可信",
+    medium: "中可信",
+    high: "高可信",
+  };
+  const level = levelMap[confidence.level] || "可信度待定";
+  const sampleCount =
+    confidence.sample_count ?? panelData.sample_count ?? panelData.lookback_sample_count;
+  const basis = confidence.basis_interval || panelData.basis_interval || "1d";
+  confidenceEl.textContent = `${level} · 样本 ${sampleCount ?? "--"} · 基准 ${basis} · ${
+    confidence.reason || "预测结果仅用于辅助判断"
+  }`;
 }
 
 function renderEntryPlan(planData) {
@@ -902,7 +981,9 @@ function renderEntryPlan(planData) {
   }
 
   const summary = planData.summary || {};
-  summaryEl.textContent = `均价 ${formatPrice(summary.avg_entry_price)} · 止损 ${formatPrice(
+  const gate = planData.execution_gate || {};
+  const gateMessage = gate.message || "请结合当前建议决定是否执行。";
+  summaryEl.textContent = `${gateMessage} · 均价 ${formatPrice(summary.avg_entry_price)} · 止损 ${formatPrice(
     summary.stop_loss_price
   )} · 目标 ${formatPrice(summary.target_price)} · 盈亏比 ${summary.risk_reward_ratio ?? "--"}`;
 
@@ -916,7 +997,9 @@ function renderEntryPlan(planData) {
     .map((row) => {
       const budget = row.budget_cny == null ? "" : ` · 预算 ¥${Number(row.budget_cny).toFixed(2)}`;
       const qty = row.quantity_gram == null ? "" : ` · 约 ${Number(row.quantity_gram).toFixed(3)}g`;
-      return `<li>第${row.batch}批 · 买入价 ${formatPrice(row.buy_price)}${budget}${qty}</li>`;
+      return `<li>第${Number(row.batch)}批 · 买入价 ${formatPrice(row.buy_price)}${escapeHtml(
+        budget
+      )}${escapeHtml(qty)}</li>`;
     })
     .join("");
 }
@@ -1180,7 +1263,7 @@ function setFlagList(container, flags, toneClass, formatter) {
   }
 
   container.innerHTML = items
-    .map((flag) => `<span class="debug-flag ${toneClass}">${formatter(flag)}</span>`)
+    .map((flag) => `<span class="debug-flag ${toneClass}">${escapeHtml(formatter(flag))}</span>`)
     .join("");
 }
 
@@ -1758,7 +1841,7 @@ function updateSignalDebug(evaluation) {
     ? explainability.factor_changes.slice(0, 4)
     : [];
   factorChangesEl.innerHTML = factorChanges.length
-    ? factorChanges.map((item) => `<li>${item}</li>`).join("")
+    ? factorChanges.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
     : "<li>本次建议变化暂无足够关键因子差异可展示。</li>";
   setFlagList(setupFlagsEl, evaluation.setup_flags, "debug-setup", prettifySetupFlag);
   setFlagList(
@@ -1771,7 +1854,7 @@ function updateSignalDebug(evaluation) {
 
   const reasons = Array.isArray(evaluation.reasons) ? evaluation.reasons.slice(0, 4) : [];
   reasonsEl.innerHTML = reasons.length
-    ? reasons.map((reason) => `<li>${stripLeadingEmoji(reason)}</li>`).join("")
+    ? reasons.map((reason) => `<li>${escapeHtml(stripLeadingEmoji(reason))}</li>`).join("")
     : "<li>当前暂无额外判断依据。</li>";
 
   updateChartDiagnostics();
@@ -1825,7 +1908,7 @@ function updateMarketBrief(advice) {
     riskFlagsEl.innerHTML = riskFlags
       .map(
         (flag) =>
-          `<span class="risk-chip ${getRiskToneClass(flag)}">${prettifyRiskFlag(flag)}</span>`
+          `<span class="risk-chip ${getRiskToneClass(flag)}">${escapeHtml(prettifyRiskFlag(flag))}</span>`
       )
       .join("");
   } else {
@@ -1839,7 +1922,7 @@ function updateMarketBrief(advice) {
 
   const insightItems = Array.isArray(advice.insights) ? advice.insights.slice(0, 3) : [];
   insightsEl.innerHTML = insightItems.length
-    ? insightItems.map((item) => `<li>${stripLeadingEmoji(item)}</li>`).join("")
+    ? insightItems.map((item) => `<li>${escapeHtml(stripLeadingEmoji(item))}</li>`).join("")
     : "<li>当前暂无额外分析洞察。</li>";
 }
 
@@ -2089,6 +2172,11 @@ async function loadDashboard() {
       timestamp: current?.timestamp,
     });
     updateSourceQuality(sourceQuality);
+    updateDecisionStrip({
+      current,
+      advice: advice?.data || null,
+      sourceQuality,
+    });
 
     const items = Array.isArray(history?.items) ? history.items : [];
     updateSignalPerformance(signalPerformance?.data || null);
@@ -2177,6 +2265,7 @@ async function loadDashboard() {
     updateMultiTimeframe(null);
     updateForecast(null);
     renderEntryPlan(null);
+    updateDecisionStrip({ current: null, advice: null, sourceQuality: null });
     updateStatus("离线", "offline");
     console.error(error);
   } finally {

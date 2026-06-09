@@ -99,6 +99,29 @@
         </article>
       </section>
 
+      <section class="decision-strip reveal" id="decision-strip" style="--delay: 320ms">
+        <article class="decision-tile">
+          <p class="label">当前价格</p>
+          <p class="decision-value" id="decision-current-price">--</p>
+          <p class="decision-note">以最近有效报价为准</p>
+        </article>
+        <article class="decision-tile decision-tile-primary">
+          <p class="label">当前建议</p>
+          <p class="decision-value" id="decision-current-advice">分析中</p>
+          <p class="decision-note">结合趋势、风险和回测可信度</p>
+        </article>
+        <article class="decision-tile">
+          <p class="label">主源状态</p>
+          <p class="decision-value" id="decision-primary-source">等待分析</p>
+          <p class="decision-note">SGE 主源优先，备用源兜底</p>
+        </article>
+        <article class="decision-tile">
+          <p class="label">执行动作</p>
+          <p class="decision-value" id="decision-action">等待建议</p>
+          <p class="decision-note">不满足条件时优先观望</p>
+        </article>
+      </section>
+
       <section class="card chart-section reveal" style="--delay: 360ms">
         <div class="chart-header">
           <div>
@@ -180,6 +203,13 @@
           </div>
           <ul class="indicator-list" id="indicator-list"></ul>
         </article>
+
+        <details class="details-panel" open>
+          <summary>
+            <span>策略证据与调试</span>
+            <small>买入信号、判断因子、图表解释</small>
+          </summary>
+          <div class="details-grid">
         <article class="card signal-debug reveal" id="signal-debug" style="--delay: 480ms">
           <div class="card-header">
             <span>判断调试视图</span>
@@ -274,6 +304,15 @@
           </div>
           <ul class="signal-list" id="signal-list"></ul>
         </article>
+          </div>
+        </details>
+
+        <details class="details-panel" open>
+          <summary>
+            <span>回测、关键位与可信度</span>
+            <small>只把当前市场环境最相关的历史表现放在前面</small>
+          </summary>
+          <div class="details-grid">
         <article class="card signal-performance reveal" style="--delay: 560ms">
           <div class="card-header">
             <span>信号回测表现</span>
@@ -368,6 +407,15 @@
             <li>等待关键位分析</li>
           </ul>
         </article>
+          </div>
+        </details>
+
+        <details class="details-panel" open>
+          <summary>
+            <span>预警与发送日志</span>
+            <small>默认本地通知，可按需启用 email / wechat</small>
+          </summary>
+          <div class="details-grid">
         <article class="card custom-alerts-panel reveal" style="--delay: 640ms">
           <div class="card-header">
             <span>自定义预警</span>
@@ -384,7 +432,7 @@
             </select>
             <input id="alert-threshold" type="number" step="0.01" placeholder="阈值" required />
             <input id="alert-cooldown" type="number" min="1" max="1440" value="60" placeholder="冷却分钟" />
-            <input id="alert-channels" type="text" value="system,webhook" placeholder="system,webhook,email,wechat" />
+            <input id="alert-channels" type="text" value="system" placeholder="system,email,wechat" />
             <button type="submit">新增预警</button>
           </form>
           <p class="performance-note" id="custom-alert-status">等待加载预警规则</p>
@@ -418,6 +466,15 @@
             <li>暂无发送日志</li>
           </ul>
         </article>
+          </div>
+        </details>
+
+        <details class="details-panel" open>
+          <summary>
+            <span>宏观、预测与执行</span>
+            <small>所有预测和执行计划都附带样本/可信度提示</small>
+          </summary>
+          <div class="details-grid">
         <article class="card macro-correlation-panel reveal" style="--delay: 720ms">
           <div class="card-header">
             <span>美元 / 国际金价关联</span>
@@ -495,6 +552,7 @@
             </div>
           </div>
           <p class="performance-note" id="forecast-scenario">等待预测情景分析</p>
+          <p class="performance-note" id="forecast-confidence">等待预测可信度评估</p>
         </article>
         <article class="card entry-plan-panel reveal" style="--delay: 840ms">
           <div class="card-header">
@@ -513,6 +571,8 @@
             <li>暂无入场计划</li>
           </ul>
         </article>
+          </div>
+        </details>
       </section>
     </main>
 

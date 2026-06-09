@@ -2,7 +2,7 @@ import pandas as pd
 from typing import Dict, Optional
 from app.database import get_db_session
 from app.models import PriceHistory
-from app.price_regime import filter_current_regime
+from app.price_series import load_price_series
 from app.trading_thresholds import TradingThresholds
 from app.cache import build_cache_key, get_json_cache, set_json_cache
 from config import settings
@@ -24,36 +24,21 @@ class IndicatorCalculator:
         self.macd_slow_period = settings.macd_slow_period
         self.macd_signal_period = settings.macd_signal_period
 
-    def get_price_data(self, days: int = 90, *, limit: Optional[int] = None) -> pd.DataFrame:
+    def get_price_data(
+        self,
+        days: int = 180,
+        *,
+        limit: Optional[int] = None,
+        interval: str = "1d",
+    ) -> pd.DataFrame:
         """获取历史价格数据"""
-        with get_db_session(read_only=True) as session:
-            query = session.query(
-                PriceHistory.timestamp,
-                PriceHistory.price_cny_per_gram,
-            ).order_by(PriceHistory.timestamp.desc())
-            if limit is None:
-                limit = days * 480
-            records = query.limit(limit).all()
-
-            if not records:
-                return pd.DataFrame()
-
-            filtered_records = filter_current_regime(
-                list(reversed(records)),
-                price_getter=lambda row: row[1],
-            )
-
-            df = pd.DataFrame([
-                {
-                    "timestamp": timestamp,
-                    "price": price,
-                }
-                for timestamp, price in filtered_records
-            ])
-
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            df = df.set_index('timestamp')
-            return df
+        series = load_price_series(
+            lookback_days=days,
+            interval=interval,
+            limit=limit,
+            apply_regime_filter=True,
+        )
+        return series.to_dataframe()
 
     def calculate_ma(self, df: pd.DataFrame) -> Dict[str, float]:
         """计算移动平均线"""
@@ -151,6 +136,8 @@ class IndicatorCalculator:
             "current_price": current_price,
             "rsi": self.calculate_rsi(df),
             "volatility": self.calculate_volatility(df),
+            "basis_interval": df.attrs.get("basis_interval", "1d"),
+            "sample_count": int(df.attrs.get("sample_count", len(df))),
         }
 
         # 添加移动平均线
