@@ -188,6 +188,12 @@ h1 {
   gap: 14px;
 }
 
+.position-decision-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 14px;
+}
+
 .decision-tile {
   position: relative;
   overflow: hidden;
@@ -223,6 +229,12 @@ h1 {
   color: var(--text-1);
   font-size: 12px;
   line-height: 1.42;
+}
+
+.sell-advice-detail {
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .lower-grid {
@@ -270,8 +282,13 @@ h1 {
 
 .timeframe-panel,
 .forecast-panel,
-.entry-plan-panel {
+.entry-plan-panel,
+.weekly-report-panel {
   grid-column: 1 / -1;
+}
+
+.mobile-action-strip {
+  display: none;
 }
 
 .details-panel {
@@ -1117,6 +1134,10 @@ h1 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .position-decision-panel {
+    grid-template-columns: 1fr;
+  }
+
   #market-brief,
   .indicator-quicklook,
   #signal-debug {
@@ -1130,7 +1151,8 @@ h1 {
   .macro-correlation-panel,
   .timeframe-panel,
   .forecast-panel,
-  .entry-plan-panel {
+  .entry-plan-panel,
+  .weekly-report-panel {
     grid-column: span 6;
   }
 }
@@ -1155,6 +1177,10 @@ h1 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .position-decision-panel {
+    grid-template-columns: 1fr;
+  }
+
   .hero-price {
     grid-column: span 6;
   }
@@ -1172,7 +1198,8 @@ h1 {
   .macro-correlation-panel,
   .timeframe-panel,
   .forecast-panel,
-  .entry-plan-panel {
+  .entry-plan-panel,
+  .weekly-report-panel {
     grid-column: span 3;
   }
 
@@ -1209,7 +1236,8 @@ h1 {
 
   .hero-grid,
   .lower-grid,
-  .decision-strip {
+  .decision-strip,
+  .position-decision-panel {
     grid-template-columns: 1fr;
     gap: 12px;
   }
@@ -1229,8 +1257,51 @@ h1 {
   .macro-correlation-panel,
   .timeframe-panel,
   .forecast-panel,
-  .entry-plan-panel {
+  .entry-plan-panel,
+  .weekly-report-panel {
     grid-column: 1 / -1;
+  }
+
+  .mobile-action-strip {
+    position: sticky;
+    top: 8px;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    padding: 6px;
+    border: 1px solid rgba(129, 167, 209, 0.24);
+    border-radius: 999px;
+    background: rgba(7, 13, 23, 0.88);
+    backdrop-filter: blur(10px);
+  }
+
+  .mobile-action-strip a {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    color: var(--text-0);
+    text-decoration: none;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: linear-gradient(145deg, rgba(242, 178, 76, 0.16), rgba(43, 200, 186, 0.08));
+  }
+
+  .custom-alert-form input,
+  .custom-alert-form select,
+  .custom-alert-form button,
+  .alert-delivery-controls select,
+  .alert-delivery-controls input,
+  .alert-delivery-controls button,
+  .entry-plan-form input,
+  .entry-plan-form button,
+  .chart-type-switch button,
+  .interval-switch button,
+  .range-switch button {
+    min-height: 44px;
+    font-size: 14px;
   }
 
   .details-grid {

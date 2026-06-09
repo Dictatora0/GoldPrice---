@@ -122,11 +122,16 @@ def test_dashboard_has_market_brief_slots():
     assert 'id="decision-current-advice"' in html
     assert 'id="decision-primary-source"' in html
     assert 'id="decision-action"' in html
+    assert 'id="position-status"' in html
+    assert 'id="sell-advice"' in html
+    assert 'id="sell-advice-detail"' in html
     assert 'id="source-quality-level"' in html
     assert 'id="source-quality-score"' in html
     assert 'id="source-quality-summary"' in html
     assert 'id="source-quality-primary-status"' in html
     assert 'id="source-quality-aggregation"' in html
+    assert 'id="source-diagnostic-status"' in html
+    assert 'id="source-outlier-summary"' in html
     assert 'id="source-quality-list"' in html
     assert 'id="market-brief"' in html
     assert 'id="market-recommendation"' in html
@@ -148,6 +153,11 @@ def test_dashboard_chart_script_renders_market_brief():
     assert 'getEl("decision-current-advice")' in script
     assert 'getEl("decision-primary-source")' in script
     assert 'getEl("decision-action")' in script
+    assert "function updatePositionDecision" in script
+    assert 'getEl("position-status")' in script
+    assert 'getEl("sell-advice")' in script
+    assert 'getEl("sell-advice-detail")' in script
+    assert 'fetchJSON("/api/analysis/position", signal)' in script
     assert 'fetchJSON("/api/price/sources/latest", signal)' in script
     assert "function updateSourceQuality(panelData)" in script
     assert 'getEl("source-quality-level")' in script
@@ -155,7 +165,11 @@ def test_dashboard_chart_script_renders_market_brief():
     assert 'getEl("source-quality-summary")' in script
     assert 'getEl("source-quality-primary-status")' in script
     assert 'getEl("source-quality-aggregation")' in script
+    assert 'getEl("source-diagnostic-status")' in script
+    assert 'getEl("source-outlier-summary")' in script
     assert 'getEl("source-quality-list")' in script
+    assert "function updateSourceDiagnostics" in script
+    assert 'fetchJSON("/api/price/diagnostics/latest", signal)' in script
     assert "panelData.primary_source" in script
     assert "当前主源：" in script
     assert "主源缺席" in script
@@ -277,8 +291,14 @@ def test_dashboard_has_signal_performance_and_sr_slots():
     assert 'id="forecast-confidence"' in html
     assert 'id="forecast-scenario"' in html
     assert 'id="entry-plan-form"' in html
+    assert 'id="entry-trigger-status"' in html
+    assert 'id="entry-trigger-list"' in html
     assert 'id="entry-plan-summary"' in html
     assert 'id="entry-plan-list"' in html
+    assert 'id="weekly-report-summary"' in html
+    assert 'id="weekly-report-price"' in html
+    assert 'id="weekly-report-advice"' in html
+    assert 'id="weekly-report-focus"' in html
     assert 'id="confidence-health"' in html
     assert 'id="confidence-signal-count"' in html
     assert 'id="confidence-primary-win-rate"' in html
@@ -327,7 +347,13 @@ def test_dashboard_chart_script_renders_performance_and_sr_panels():
     assert "function updateMultiTimeframe(panelData)" in script
     assert "function updateForecast(panelData)" in script
     assert "function renderEntryPlan(planData)" in script
+    assert 'getEl("entry-trigger-status")' in script
+    assert 'getEl("entry-trigger-list")' in script
+    assert "conditional_triggers" in script
     assert "function loadEntryPlan(signal)" in script
+    assert "function updateWeeklyReport" in script
+    assert 'fetchJSON("/api/analysis/weekly-report?days=7", signal)' in script
+    assert 'getEl("weekly-report-summary")' in script
     assert 'fetchJSON(`/api/analysis/multi-timeframe?windows=1,7,30&lookback_days=${Math.max(range.days, 120)}`' in script
     assert 'fetchJSON(`/api/analysis/forecast?lookback_days=${Math.max(range.days, 120)}&horizon_days=7`' in script
     assert 'fetchJSON(`/api/analysis/entry-plan?' in script
@@ -386,6 +412,8 @@ def test_performance_and_sr_styles_are_defined():
 
     assert ".decision-strip" in css
     assert ".decision-tile" in css
+    assert ".position-decision-panel" in css
+    assert ".sell-advice-detail" in css
     assert ".details-panel" in css
     assert ".details-panel summary" in css
     assert ".signal-performance" in css
@@ -405,3 +433,6 @@ def test_performance_and_sr_styles_are_defined():
     assert ".forecast-panel" in css
     assert ".entry-plan-panel" in css
     assert ".entry-plan-form" in css
+    assert ".weekly-report-panel" in css
+    assert ".mobile-action-strip" in css
+    assert "min-height: 44px" in css

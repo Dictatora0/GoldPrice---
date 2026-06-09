@@ -1,6 +1,7 @@
 import os
 import shutil
 import statistics
+import json
 from datetime import datetime
 from typing import Optional
 
@@ -13,7 +14,7 @@ except ModuleNotFoundError:  # pragma: no cover - handled at runtime
 
 from app.collectors import CollectorManager
 from app.database import get_session, get_db_session
-from app.models import PriceHistory, PriceSource, AnalysisSignal
+from app.models import PriceHistory, PriceSource, AnalysisSignal, SourceDiagnostic
 from app.analyzers.signals import SignalDetector
 from app.notifiers.macos import MacOSNotifier
 from app.logging_config import get_logger
@@ -90,6 +91,8 @@ def save_collection(data: dict) -> Optional[int]:
 
     valid_sources = data.get("sources", {})
     invalid_sources = data.get("invalid_sources", {})
+    raw_sources = data.get("raw_sources") or {**valid_sources, **invalid_sources}
+    aggregation = data.get("aggregation", {})
 
     session = get_session()
     try:
@@ -98,6 +101,18 @@ def save_collection(data: dict) -> Optional[int]:
             data["price_cny_per_gram"],
         )
         if suspicious:
+            session.add(
+                SourceDiagnostic(
+                    timestamp=data["timestamp"],
+                    status="rejected_by_price_guard",
+                    raw_sources=json.dumps(raw_sources, ensure_ascii=False),
+                    valid_sources=json.dumps(valid_sources, ensure_ascii=False),
+                    invalid_sources=json.dumps(invalid_sources, ensure_ascii=False),
+                    aggregation=json.dumps(aggregation, ensure_ascii=False),
+                    guard_context=json.dumps(guard_context, ensure_ascii=False),
+                )
+            )
+            session.commit()
             logger.warning(
                 "Reject suspicious collection price %.2f (median %.2f, deviation %.2f%%, points %d)",
                 data["price_cny_per_gram"],
@@ -133,6 +148,17 @@ def save_collection(data: dict) -> Optional[int]:
                     is_valid=False,
                 )
             )
+        session.add(
+            SourceDiagnostic(
+                timestamp=data["timestamp"],
+                status="rejected_by_source_filter" if invalid_sources else "accepted",
+                raw_sources=json.dumps(raw_sources, ensure_ascii=False),
+                valid_sources=json.dumps(valid_sources, ensure_ascii=False),
+                invalid_sources=json.dumps(invalid_sources, ensure_ascii=False),
+                aggregation=json.dumps(aggregation, ensure_ascii=False),
+                guard_context=json.dumps({}, ensure_ascii=False),
+            )
+        )
 
         session.commit()
         return history.id

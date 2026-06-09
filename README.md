@@ -158,6 +158,12 @@ cp .env.example .env
 - `runtime.details.scheduler.collect.last_success_at`：最近一次采集成功时间
 - `runtime.details.alerts_loop.last_success_at`：最近一次告警检测成功时间
 
+升级后如果新增了数据表（例如持仓状态 `position_state`、数据源诊断 `source_diagnostics`），先执行：
+
+```bash
+./manage.sh init-db
+```
+
 最小排障清单：
 1. `./manage.sh daemon-check` 看 `status` 是否 `ok`。
 2. 若 `runtime.scheduler.running=false`，先看 `logs/server.out` 是否缺少 `apscheduler` 依赖。
@@ -199,6 +205,12 @@ BASE_URL=http://127.0.0.1:8000 bash scripts/smoke_test.sh
 - **建议:** 强烈推荐/推荐/观望/不推荐/强烈不推荐
 - **洞察:** 关键指标解读
 - **风险:** 风险因素识别
+
+### 移动端查看
+
+- 手机端顶部会显示快捷导航：建议、周报、入场、数据源。
+- 周报面板会汇总近 7 天价格变化、当前建议和下周关注点，适合日常快速复盘。
+- 入场计划在不满足触发条件时会显示等待/阻塞状态，移动端不要把预案价格理解为立即买入价。
 
 ### 切换图表类型
 
@@ -330,6 +342,7 @@ DEBUG=false
 
 ### 价格相关
 - `GET /api/price/current` - 获取当前价格
+- `GET /api/price/diagnostics/latest` - 获取最近采集诊断、异常源隔离和价格守卫状态
 - `GET /api/price/history` - 获取历史价格
 - `GET /api/price/candlestick` - 获取K线数据
 
@@ -337,9 +350,13 @@ DEBUG=false
 - `GET /api/analysis/indicators` - 获取技术指标
 - `GET /api/analysis/signals` - 获取买入信号历史
 - `GET /api/analysis/advice` - 获取智能建议
+- `GET /api/analysis/position` - 获取当前手动记录的持仓状态
+- `PUT /api/analysis/position` - 更新当前持仓、成本价和目标持仓
 - `GET /api/analysis/signal-performance` - 获取历史信号回测表现
 - `GET /api/analysis/confidence-center` - 获取策略体检与建议可信度中心
 - `GET /api/analysis/support-resistance` - 获取自动识别支撑/阻力位
+- `GET /api/analysis/entry-plan` - 获取条件触发式分批入场计划
+- `GET /api/analysis/weekly-report` - 获取本周复盘和下周关注点
 
 ### 预警相关
 - `GET /api/alerts` - 获取自定义预警规则
@@ -362,8 +379,19 @@ DEBUG=false
 # 获取当前价格
 curl http://localhost:8000/api/price/current
 
+# 查看数据源诊断和异常价隔离状态
+curl http://localhost:8000/api/price/diagnostics/latest
+
 # 获取智能建议
 curl http://localhost:8000/api/analysis/advice
+
+# 设置当前持仓状态（本地手动记录，不连接券商账户）
+curl -X PUT "http://localhost:8000/api/analysis/position" \
+  -H "Content-Type: application/json" \
+  -d '{"quantity_gram":20,"avg_cost_price":580,"target_quantity_gram":10,"notes":"core holding"}'
+
+# 查看持仓状态
+curl http://localhost:8000/api/analysis/position
 
 # 获取信号回测统计(默认3/7/30天窗口)
 curl "http://localhost:8000/api/analysis/signal-performance?window_days=180&horizons=3,7,30"
@@ -373,6 +401,17 @@ curl "http://localhost:8000/api/analysis/confidence-center?window_days=180&horiz
 
 # 获取支撑/阻力关键位
 curl "http://localhost:8000/api/analysis/support-resistance?window_days=180&pivot_window=5"
+
+# 获取条件触发式入场计划
+curl "http://localhost:8000/api/analysis/entry-plan?budget_cny=6000&batches=3&step_pct=2.0&target_profit_pct=5.0"
+
+入场计划说明：
+- `execution_gate` 表示当前建议是否允许执行。
+- `conditional_triggers` 表示“是否真的满足入场触发条件”，包括回踩支撑、入场确认、盈亏比检查。
+- `plan[].status=waiting/blocked` 时，买入价只是预案，不代表应立即买入。
+
+# 获取本周复盘和下周关注点
+curl "http://localhost:8000/api/analysis/weekly-report?days=7"
 
 # 新增自定义预警：价格跌破 580 元
 curl -X POST "http://localhost:8000/api/alerts?name=price-floor-580&rule_type=price_below&threshold=580&channels=system,email,wechat&cooldown_minutes=60&enabled=true"

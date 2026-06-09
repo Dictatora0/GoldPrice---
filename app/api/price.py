@@ -11,13 +11,14 @@ from fastapi import APIRouter, Query
 from app.api.errors import error_response
 from app.cache import cache_manager, get_json_cache, set_json_cache, build_cache_key
 from app.database import get_db_session
-from app.models import PriceHistory, PriceSource
+from app.models import PriceHistory, PriceSource, SourceDiagnostic
 from app.price_regime import build_regime_meta, filter_current_regime
 from app.source_quality import (
     build_source_entry,
     build_source_health_map,
     calculate_consensus_price,
     determine_primary_source,
+    build_diagnostic_payload,
     summarize_source_quality,
 )
 from config import settings
@@ -181,6 +182,50 @@ def get_latest_price_sources():
         "aggregation": aggregation,
         "sources": sources,
     }
+
+
+@router.get(
+    "/diagnostics/latest",
+    summary="Get latest source diagnostics",
+    description="Return recent source filtering and price-guard diagnostics for the data credibility panel.",
+)
+def get_latest_price_diagnostics(limit: int = Query(10, ge=1, le=100)):
+    with get_db_session(read_only=True) as session:
+        records = (
+            session.query(
+                SourceDiagnostic.timestamp,
+                SourceDiagnostic.status,
+                SourceDiagnostic.raw_sources,
+                SourceDiagnostic.valid_sources,
+                SourceDiagnostic.invalid_sources,
+                SourceDiagnostic.aggregation,
+                SourceDiagnostic.guard_context,
+            )
+            .order_by(SourceDiagnostic.timestamp.desc(), SourceDiagnostic.id.desc())
+            .limit(limit)
+            .all()
+        )
+        rows = [
+            {
+                "timestamp": timestamp,
+                "status": status,
+                "raw_sources": raw_sources,
+                "valid_sources": valid_sources,
+                "invalid_sources": invalid_sources,
+                "aggregation": aggregation,
+                "guard_context": guard_context,
+            }
+            for (
+                timestamp,
+                status,
+                raw_sources,
+                valid_sources,
+                invalid_sources,
+                aggregation,
+                guard_context,
+            ) in records
+        ]
+    return build_diagnostic_payload(rows)
 
 
 @router.get(

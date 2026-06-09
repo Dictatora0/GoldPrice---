@@ -41,6 +41,24 @@ class PriceSource(Base):
     )
 
 
+class SourceDiagnostic(Base):
+    __tablename__ = "source_diagnostics"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
+    status = Column(String(40), nullable=False)
+    raw_sources = Column(Text, nullable=False, default="{}")
+    valid_sources = Column(Text, nullable=False, default="{}")
+    invalid_sources = Column(Text, nullable=False, default="{}")
+    aggregation = Column(Text, nullable=False, default="{}")
+    guard_context = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    __table_args__ = (
+        Index("idx_source_diagnostic_status_time", "status", "timestamp"),
+    )
+
+
 class AnalysisSignal(Base):
     __tablename__ = "analysis_signals"
 
@@ -74,6 +92,22 @@ class AdviceSnapshot(Base):
 
     __table_args__ = (
         Index('idx_advice_snapshot_timestamp', 'snapshot_timestamp'),
+    )
+
+
+class PositionState(Base):
+    __tablename__ = "position_state"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    quantity_gram = Column(Float, nullable=False, default=0.0)
+    avg_cost_price = Column(Float, nullable=True)
+    target_quantity_gram = Column(Float, nullable=True)
+    notes = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    __table_args__ = (
+        Index("idx_position_state_updated", "updated_at"),
     )
 
 

@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.price import (
     get_current_price,
     get_latest_price_sources,
+    get_latest_price_diagnostics,
     get_price_history,
     get_candlestick_data,
     router as price_router,
@@ -13,6 +14,8 @@ from app.api.analysis import (
     get_advice,
     get_buy_signal_evaluation,
     get_cache_stats,
+    get_position,
+    update_position,
     get_signal_performance,
     get_confidence_center,
     get_support_resistance,
@@ -20,6 +23,7 @@ from app.api.analysis import (
     get_multi_timeframe,
     get_price_forecast,
     get_entry_plan,
+    get_weekly_report,
     router as analysis_router,
 )
 from app.api.health import health_check, router as health_router
@@ -45,6 +49,7 @@ router.include_router(alerts_router)
 v1_router = APIRouter()
 v1_router.get("/api/v1/price/current")(get_current_price)
 v1_router.get("/api/v1/price/sources/latest")(get_latest_price_sources)
+v1_router.get("/api/v1/price/diagnostics/latest")(get_latest_price_diagnostics)
 v1_router.get("/api/v1/price/history")(get_price_history)
 v1_router.get("/api/v1/price/candlestick")(get_candlestick_data)
 v1_router.get("/api/v1/analysis/indicators")(get_indicators)
@@ -52,6 +57,8 @@ v1_router.get("/api/v1/analysis/signals")(get_signals)
 v1_router.get("/api/v1/analysis/advice")(get_advice)
 v1_router.get("/api/v1/analysis/buy-signal")(get_buy_signal_evaluation)
 v1_router.get("/api/v1/analysis/cache/stats")(get_cache_stats)
+v1_router.get("/api/v1/analysis/position")(get_position)
+v1_router.put("/api/v1/analysis/position")(update_position)
 v1_router.get("/api/v1/analysis/signal-performance")(get_signal_performance)
 v1_router.get("/api/v1/analysis/confidence-center")(get_confidence_center)
 v1_router.get("/api/v1/analysis/support-resistance")(get_support_resistance)
@@ -59,6 +66,7 @@ v1_router.get("/api/v1/analysis/macro-correlation")(get_macro_correlation)
 v1_router.get("/api/v1/analysis/multi-timeframe")(get_multi_timeframe)
 v1_router.get("/api/v1/analysis/forecast")(get_price_forecast)
 v1_router.get("/api/v1/analysis/entry-plan")(get_entry_plan)
+v1_router.get("/api/v1/analysis/weekly-report")(get_weekly_report)
 v1_router.get("/api/v1/health")(health_check)
 v1_router.websocket("/api/v1/ws")(websocket_endpoint)
 v1_router.get("/api/v1/logs")(get_logs)

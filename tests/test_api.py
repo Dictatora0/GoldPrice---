@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import get_db_session, engine, init_db
-from app.models import PriceHistory, AnalysisSignal, PriceSource
+from app.models import PriceHistory, AnalysisSignal, PriceSource, PositionState, SourceDiagnostic
 from config import settings
 from app.main import app
 
@@ -100,6 +100,21 @@ def seed_price_with_sources(ts, price, sources):
                     is_valid=item.get("is_valid", True),
                 )
             )
+
+
+def seed_source_diagnostic(ts, *, status="accepted", rejected_sources=None, guard=None):
+    with get_db_session() as session:
+        session.add(
+            SourceDiagnostic(
+                timestamp=ts,
+                status=status,
+                raw_sources=json.dumps({"sge_official": 612.2, "sina": 612.4, "global_gold": 640.0}),
+                valid_sources=json.dumps({"sge_official": 612.2, "sina": 612.4}),
+                invalid_sources=json.dumps(rejected_sources or {"global_gold": 640.0}),
+                aggregation=json.dumps({"method": "primary_trusted_anchor", "price_cny_per_gram": 612.3}),
+                guard_context=json.dumps(guard or {"reason": "source_outlier"}),
+            )
+        )
 
 
 def test_health_endpoint_returns_ok(client):
@@ -218,6 +233,44 @@ def test_latest_price_sources_endpoint_marks_primary_source_missing(client):
     assert data["primary_source"]["name"] is None
     assert data["primary_source"]["display_name"] == "主源缺席"
     assert data["primary_source"]["status"] == "missing"
+
+
+def test_latest_price_diagnostics_returns_source_and_outlier_state(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    seed_price_with_sources(
+        now,
+        612.4,
+        [
+            {"source_name": "sge_official", "price_cny_per_gram": 612.2, "is_valid": True},
+            {"source_name": "sina", "price_cny_per_gram": 612.4, "is_valid": True},
+            {"source_name": "global_gold", "price_cny_per_gram": 640.0, "is_valid": False},
+        ],
+    )
+    seed_source_diagnostic(now, status="rejected_by_source_filter")
+
+    response = client.get("/api/price/diagnostics/latest")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["status"] == "rejected_by_source_filter"
+    assert data["summary"]["invalid_source_count"] == 1
+    assert data["summary"]["valid_source_count"] == 2
+    assert data["summary"]["has_outliers"] is True
+    assert data["latest_rejection"]["source_name"] == "global_gold"
+    assert data["latest_rejection"]["price_cny_per_gram"] == 640.0
+    assert data["diagnostics"][0]["status"] == "rejected_by_source_filter"
+
+
+def test_latest_price_diagnostics_v1_endpoint_matches_legacy_route(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    seed_source_diagnostic(now, status="accepted", rejected_sources={})
+
+    legacy_response = client.get("/api/price/diagnostics/latest")
+    v1_response = client.get("/api/v1/price/diagnostics/latest")
+
+    assert legacy_response.status_code == 200
+    assert v1_response.status_code == 200
+    assert legacy_response.json()["summary"] == v1_response.json()["summary"]
 
 
 def test_price_history_downsample_interval(client):
@@ -517,8 +570,91 @@ def test_multi_timeframe_forecast_and_entry_plan_endpoints(client):
     assert entry_plan_data["current_price"] is not None
     assert entry_plan_data["execution_gate"]["status"] in {"ready", "watch", "blocked", "unavailable"}
     assert "message" in entry_plan_data["execution_gate"]
+    assert entry_plan_data["conditional_triggers"]["mode"] == "conditional"
+    assert entry_plan_data["conditional_triggers"]["status"] in {"armed", "waiting", "blocked", "unavailable"}
+    assert entry_plan_data["conditional_triggers"]["next_action"]
+    assert isinstance(entry_plan_data["conditional_triggers"]["conditions"], list)
+    assert entry_plan_data["plan"][0]["trigger_condition"]
+    assert entry_plan_data["plan"][0]["status"] in {"ready", "waiting", "blocked"}
     assert len(entry_plan_data["plan"]) == 3
     assert entry_plan_data["summary"]["avg_entry_price"] is not None
+
+
+def test_weekly_report_endpoint_returns_decision_summary(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    seed_price_history(
+        [
+            (now - timedelta(days=6), 600.0),
+            (now - timedelta(days=3), 606.0),
+            (now, 612.0),
+        ]
+    )
+    seed_price_with_sources(
+        now,
+        612.0,
+        [
+            {"source_name": "sge_official", "price_cny_per_gram": 612.0, "is_valid": True},
+            {"source_name": "sina", "price_cny_per_gram": 612.2, "is_valid": True},
+        ],
+    )
+
+    response = client.get("/api/analysis/weekly-report?days=7")
+    payload = response.json()["data"]
+
+    assert response.status_code == 200
+    assert payload["period_days"] == 7
+    assert payload["price"]["start_price"] == 600.0
+    assert payload["price"]["end_price"] == 612.0
+    assert payload["price"]["change_pct"] == 2.0
+    assert "advice" in payload
+    assert "source_quality" in payload
+    assert "position" in payload
+    assert isinstance(payload["next_week_focus"], list)
+    assert payload["generated_at"]
+
+
+def test_weekly_report_v1_endpoint_matches_legacy_route(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    seed_price_history([(now - timedelta(days=6), 600.0), (now, 612.0)])
+
+    legacy_response = client.get("/api/analysis/weekly-report?days=7")
+    v1_response = client.get("/api/v1/analysis/weekly-report?days=7")
+
+    assert legacy_response.status_code == 200
+    assert v1_response.status_code == 200
+    assert legacy_response.json()["data"]["price"] == v1_response.json()["data"]["price"]
+
+
+def test_position_endpoint_round_trips_state_and_advice_uses_position(client):
+    now = datetime.now().replace(second=0, microsecond=0)
+    seed_price_history([(now - timedelta(days=idx), 600.0 + idx) for idx in range(100, 0, -1)])
+
+    update_resp = client.put(
+        "/api/analysis/position",
+        json={
+            "quantity_gram": 20.0,
+            "avg_cost_price": 580.0,
+            "target_quantity_gram": 10.0,
+            "notes": "core holding",
+        },
+    )
+    assert update_resp.status_code == 200
+    state = update_resp.json()["data"]
+    assert state["has_position"] is True
+    assert state["quantity_gram"] == 20.0
+    assert state["avg_cost_price"] == 580.0
+
+    get_resp = client.get("/api/analysis/position")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["data"]["notes"] == "core holding"
+
+    advice_resp = client.get("/api/analysis/advice")
+    assert advice_resp.status_code == 200
+    advice = advice_resp.json()["data"]
+    assert "position" in advice
+    assert "sell_advice" in advice
+    assert advice["position"]["quantity_gram"] == 20.0
+    assert advice["sell_advice"]["action"] in {"hold", "reduce", "take_profit", "stop_loss", "trim_to_target"}
 
 
 def test_confidence_center_endpoint_returns_audit_view(client):

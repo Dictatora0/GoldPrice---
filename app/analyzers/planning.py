@@ -104,6 +104,90 @@ def _build_execution_gate() -> dict[str, Any]:
     }
 
 
+def _build_conditional_triggers(
+    *,
+    current_price: Optional[float],
+    execution_gate: dict[str, Any],
+    nearest_support: Optional[dict[str, Any]],
+    nearest_resistance: Optional[dict[str, Any]],
+) -> dict[str, Any]:
+    gate_status = execution_gate.get("status")
+    conditions: list[dict[str, Any]] = []
+    if current_price is None:
+        return {
+            "mode": "conditional",
+            "status": "unavailable",
+            "next_action": "暂无价格数据，先等待采集恢复。",
+            "conditions": [],
+        }
+
+    support_price = _safe_float((nearest_support or {}).get("price"))
+    resistance_price = _safe_float((nearest_resistance or {}).get("price"))
+    if support_price and support_price < current_price:
+        support_distance_pct = (current_price - support_price) / current_price * 100
+        conditions.append(
+            {
+                "type": "pullback_to_support",
+                "label": "回踩支撑",
+                "target_price": _round_optional(support_price),
+                "distance_pct": _round_optional(support_distance_pct, 2),
+                "status": "met" if support_distance_pct <= 0.8 else "waiting",
+                "description": f"价格回踩到 {support_price:.2f} 附近且不跌破支撑。",
+            }
+        )
+    else:
+        conditions.append(
+            {
+                "type": "pullback_to_support",
+                "label": "等待支撑位",
+                "target_price": None,
+                "distance_pct": None,
+                "status": "waiting",
+                "description": "当前窗口尚未识别出可用支撑位，先等待关键位形成。",
+            }
+        )
+
+    conditions.append(
+        {
+            "type": "entry_confirmation",
+            "label": "入场确认",
+            "target_price": None,
+            "distance_pct": None,
+            "status": "met" if execution_gate.get("entry_ready") else "waiting",
+            "description": "买入建议、动量和风险检查需要同时满足。",
+        }
+    )
+
+    if resistance_price and resistance_price > current_price:
+        conditions.append(
+            {
+                "type": "risk_reward",
+                "label": "盈亏比检查",
+                "target_price": _round_optional(resistance_price),
+                "distance_pct": _round_optional((resistance_price - current_price) / current_price * 100, 2),
+                "status": "met",
+                "description": "上方阻力仍留有空间，计划需要维持正向盈亏比。",
+            }
+        )
+
+    if gate_status == "blocked":
+        status = "blocked"
+        next_action = "当前不满足入场条件，只保留预案；先等待风险解除。"
+    elif gate_status == "ready" and all(item["status"] == "met" for item in conditions):
+        status = "armed"
+        next_action = "条件已满足，可按第一批小仓执行，并严格使用止损。"
+    else:
+        status = "waiting"
+        next_action = "条件未全部满足，建议设置预警而不是立即买入。"
+
+    return {
+        "mode": "conditional",
+        "status": status,
+        "next_action": next_action,
+        "conditions": conditions,
+    }
+
+
 def _load_prices(
     *,
     lookback_days: int,
@@ -371,6 +455,12 @@ def calculate_entry_plan(
                 "entry_ready": False,
                 "risk_flags": [],
             },
+            "conditional_triggers": {
+                "mode": "conditional",
+                "status": "unavailable",
+                "next_action": "暂无价格数据，先等待采集恢复。",
+                "conditions": [],
+            },
             "plan": [],
             "summary": {
                 "avg_entry_price": None,
@@ -392,6 +482,12 @@ def calculate_entry_plan(
     level_data = calculate_support_resistance(window_days=180, pivot_window=5, max_levels=3)
     nearest_support = (level_data or {}).get("nearest_support")
     nearest_resistance = (level_data or {}).get("nearest_resistance")
+    conditional_triggers = _build_conditional_triggers(
+        current_price=current_price,
+        execution_gate=execution_gate,
+        nearest_support=nearest_support,
+        nearest_resistance=nearest_resistance,
+    )
 
     batch_plan: list[dict[str, Any]] = []
     per_batch_budget = None
@@ -400,9 +496,18 @@ def calculate_entry_plan(
 
     for idx in range(batches):
         price = current_price * ((1 - step_pct / 100) ** idx)
+        row_status = "ready" if conditional_triggers["status"] == "armed" and idx == 0 else "waiting"
+        if conditional_triggers["status"] == "blocked":
+            row_status = "blocked"
         row = {
             "batch": idx + 1,
             "buy_price": round(price, 3),
+            "status": row_status,
+            "trigger_condition": (
+                "条件满足后执行首批小仓。"
+                if idx == 0
+                else f"首批成交后，价格再回落 {step_pct:.1f}% 附近再执行第 {idx + 1} 批。"
+            ),
         }
         if per_batch_budget is not None:
             qty_gram = per_batch_budget / price if price > 0 else None
@@ -435,6 +540,7 @@ def calculate_entry_plan(
         "step_pct": _round_optional(step_pct, 2),
         "target_profit_pct": _round_optional(target_profit_pct, 2),
         "execution_gate": execution_gate,
+        "conditional_triggers": conditional_triggers,
         "nearest_support": nearest_support,
         "nearest_resistance": nearest_resistance,
         "plan": batch_plan,

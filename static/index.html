@@ -84,6 +84,8 @@
           <p class="signal-sub" id="source-quality-summary">等待最近一次源共识分析</p>
           <p class="signal-sub" id="source-quality-primary-status">当前主源：等待分析</p>
           <p class="signal-sub" id="source-quality-aggregation">等待聚合方法分析</p>
+          <p class="signal-sub" id="source-diagnostic-status">诊断状态：等待采集诊断</p>
+          <p class="signal-sub" id="source-outlier-summary">异常价：等待分析</p>
           <ul class="signal-list source-quality-list" id="source-quality-list">
             <li>等待数据源明细</li>
           </ul>
@@ -119,6 +121,26 @@
           <p class="label">执行动作</p>
           <p class="decision-value" id="decision-action">等待建议</p>
           <p class="decision-note">不满足条件时优先观望</p>
+        </article>
+      </section>
+
+      <nav class="mobile-action-strip" aria-label="移动端快捷导航">
+        <a href="#market-brief">建议</a>
+        <a href="#weekly-report-summary">周报</a>
+        <a href="#entry-plan-form">入场</a>
+        <a href="#source-quality-list">数据源</a>
+      </nav>
+
+      <section class="position-decision-panel reveal" style="--delay: 340ms">
+        <article class="decision-tile">
+          <p class="label">持仓状态</p>
+          <p class="decision-value" id="position-status">未记录持仓</p>
+          <p class="decision-note">用于补全买入、卖出和减仓决策</p>
+        </article>
+        <article class="decision-tile decision-tile-primary">
+          <p class="label">卖出 / 减仓建议</p>
+          <p class="decision-value" id="sell-advice">等待分析</p>
+          <p class="sell-advice-detail" id="sell-advice-detail">设置持仓后将显示止盈、减仓或止损建议。</p>
         </article>
       </section>
 
@@ -566,9 +588,33 @@
             <input id="entry-target" type="number" min="0.5" max="40" step="0.1" value="5.0" placeholder="目标收益%" />
             <button type="submit">生成计划</button>
           </form>
+          <p class="performance-note" id="entry-trigger-status">等待条件触发判断</p>
+          <ul class="signal-list" id="entry-trigger-list">
+            <li>暂无触发条件</li>
+          </ul>
           <p class="performance-note" id="entry-plan-summary">等待生成入场计划</p>
           <ul class="signal-list" id="entry-plan-list">
             <li>暂无入场计划</li>
+          </ul>
+        </article>
+        <article class="card weekly-report-panel reveal" style="--delay: 880ms">
+          <div class="card-header">
+            <span>本周复盘 / 下周关注</span>
+            <span class="muted">周报</span>
+          </div>
+          <p class="performance-note" id="weekly-report-summary">等待生成周报</p>
+          <div class="performance-overview">
+            <div class="metric-box">
+              <p class="label">本周价格</p>
+              <p class="metric" id="weekly-report-price">--</p>
+            </div>
+            <div class="metric-box">
+              <p class="label">当前建议</p>
+              <p class="metric" id="weekly-report-advice">--</p>
+            </div>
+          </div>
+          <ul class="signal-list" id="weekly-report-focus">
+            <li>等待下周关注点</li>
           </ul>
         </article>
           </div>

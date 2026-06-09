@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import json
 from statistics import mean, median
 from typing import Any, Optional
 
@@ -301,4 +302,73 @@ def calculate_consensus_price(source_entries: list[dict[str, Any]]) -> dict[str,
         "price_cny_per_gram": round(weighted_sum / total_weight, 2),
         "method": aggregation_method,
         "contributors": contributors,
+    }
+
+
+def load_json_object(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def build_diagnostic_payload(rows: list[Any]) -> dict[str, Any]:
+    diagnostics = []
+    for row in rows:
+        if isinstance(row, dict):
+            timestamp = row.get("timestamp")
+            status = row.get("status")
+            invalid_sources = load_json_object(row.get("invalid_sources"))
+            valid_sources = load_json_object(row.get("valid_sources"))
+            raw_sources = load_json_object(row.get("raw_sources"))
+            aggregation = load_json_object(row.get("aggregation"))
+            guard_context = load_json_object(row.get("guard_context"))
+        else:
+            timestamp = row.timestamp
+            status = row.status
+            invalid_sources = load_json_object(row.invalid_sources)
+            valid_sources = load_json_object(row.valid_sources)
+            raw_sources = load_json_object(row.raw_sources)
+            aggregation = load_json_object(row.aggregation)
+            guard_context = load_json_object(row.guard_context)
+        rejected = [
+            {
+                "source_name": name,
+                "price_cny_per_gram": round(float(price), 2),
+            }
+            for name, price in invalid_sources.items()
+        ]
+        diagnostics.append(
+            {
+                "timestamp": timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp),
+                "status": status,
+                "raw_source_count": len(raw_sources),
+                "valid_source_count": len(valid_sources),
+                "invalid_source_count": len(invalid_sources),
+                "rejected_sources": rejected,
+                "aggregation": aggregation,
+                "guard_context": guard_context,
+            }
+        )
+
+    latest = diagnostics[0] if diagnostics else None
+    latest_rejection = None
+    if latest and latest["rejected_sources"]:
+        latest_rejection = latest["rejected_sources"][0]
+
+    return {
+        "status": latest["status"] if latest else "unavailable",
+        "summary": {
+            "valid_source_count": latest["valid_source_count"] if latest else 0,
+            "invalid_source_count": latest["invalid_source_count"] if latest else 0,
+            "has_outliers": bool(latest and latest["invalid_source_count"] > 0),
+            "latest_status": latest["status"] if latest else "unavailable",
+        },
+        "latest_rejection": latest_rejection,
+        "diagnostics": diagnostics,
     }

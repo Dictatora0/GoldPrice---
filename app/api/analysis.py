@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel, Field
 
 from app.analyzers.indicators import IndicatorCalculator
 from app.analyzers.advisor import MarketAdvisor
@@ -22,6 +23,8 @@ from app.analyzers.planning import (
     calculate_price_forecast,
     calculate_entry_plan,
 )
+from app.analyzers.position import get_position_state, save_position_state
+from app.analyzers.reporting import build_weekly_report
 from app.api.errors import error_response
 from app.database import get_db_session
 from app.models import AnalysisSignal
@@ -29,6 +32,13 @@ from app.cache import cache_manager
 from app.signal_validation import decode_signal_indicators, is_complete_signal_payload
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+
+
+class PositionStateRequest(BaseModel):
+    quantity_gram: float = Field(0, ge=0)
+    avg_cost_price: Optional[float] = Field(None, ge=0)
+    target_quantity_gram: Optional[float] = Field(None, ge=0)
+    notes: Optional[str] = Field(None, max_length=500)
 
 
 @router.get(
@@ -143,6 +153,31 @@ def get_cache_stats():
     """获取缓存统计信息"""
     stats = cache_manager.get_stats()
     return {"data": stats}
+
+
+@router.get(
+    "/position",
+    summary="Get current position state",
+    description="Return user-configured holding quantity, average cost and target holding.",
+)
+def get_position():
+    return {"data": get_position_state()}
+
+
+@router.put(
+    "/position",
+    summary="Update current position state",
+    description="Save current gold holding state used by sell/reduce advice.",
+)
+def update_position(payload: PositionStateRequest):
+    return {
+        "data": save_position_state(
+            quantity_gram=payload.quantity_gram,
+            avg_cost_price=payload.avg_cost_price,
+            target_quantity_gram=payload.target_quantity_gram,
+            notes=payload.notes,
+        )
+    }
 
 
 @router.get(
@@ -286,3 +321,12 @@ def get_entry_plan(
         target_profit_pct=target_profit_pct,
     )
     return {"data": payload}
+
+
+@router.get(
+    "/weekly-report",
+    summary="Get weekly decision report",
+    description="Return a compact weekly summary for price, advice, source quality and next-week focus.",
+)
+def get_weekly_report(days: int = Query(7, ge=3, le=30)):
+    return {"data": build_weekly_report(days=days)}

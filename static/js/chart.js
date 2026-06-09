@@ -149,6 +149,38 @@ function updateDecisionStrip({ current, advice, sourceQuality }) {
   actionEl.textContent = advice?.action_label || "等待建议";
 }
 
+function updatePositionDecision(positionPayload, advicePayload) {
+  const statusEl = getEl("position-status");
+  const adviceEl = getEl("sell-advice");
+  const detailEl = getEl("sell-advice-detail");
+  if (!statusEl || !adviceEl || !detailEl) return;
+
+  const position = advicePayload?.position || positionPayload || {};
+  const sellAdvice = advicePayload?.sell_advice || {};
+  if (!position.has_position) {
+    statusEl.textContent = "未记录持仓";
+    adviceEl.textContent = "无需卖出";
+    detailEl.textContent = "当前没有持仓，卖出/减仓建议暂不适用。";
+    return;
+  }
+
+  const quantity = Number(position.quantity_gram || 0);
+  const cost = Number(position.avg_cost_price);
+  const quantityText = Number.isFinite(quantity) ? `${quantity.toFixed(3)}g` : "--";
+  const costText = Number.isFinite(cost) ? `成本 ${formatPrice(cost)}` : "成本未设置";
+  statusEl.textContent = `${quantityText} · ${costText}`;
+  adviceEl.textContent = sellAdvice.action_label || "继续持有";
+  const pnlText =
+    sellAdvice.unrealized_pnl_pct == null
+      ? ""
+      : `浮盈亏 ${formatPctCompact(sellAdvice.unrealized_pnl_pct)} · `;
+  const sellPctText =
+    Number(sellAdvice.suggested_sell_pct || 0) > 0
+      ? `建议减仓 ${Number(sellAdvice.suggested_sell_pct)}% · `
+      : "";
+  detailEl.textContent = `${pnlText}${sellPctText}${sellAdvice.reason || "当前未触发明确卖出条件。"}`;
+}
+
 function simpleMovingAverage(values, windowSize) {
   const result = new Array(values.length).fill(null);
   if (windowSize <= 0) return result;
@@ -313,6 +345,37 @@ function updateSourceQuality(panelData) {
         })
         .join("")
     : "<li>暂无数据源明细</li>";
+}
+
+function updateSourceDiagnostics(panelData) {
+  const statusEl = getEl("source-diagnostic-status");
+  const outlierEl = getEl("source-outlier-summary");
+  if (!statusEl || !outlierEl) return;
+
+  if (!panelData) {
+    statusEl.textContent = "诊断状态：等待采集诊断";
+    outlierEl.textContent = "异常价：等待分析";
+    return;
+  }
+
+  const statusMap = {
+    accepted: "正常入库",
+    rejected_by_source_filter: "已剔除异常源",
+    rejected_by_price_guard: "价格守卫拒绝",
+    unavailable: "暂无诊断",
+  };
+  const summary = panelData.summary || {};
+  statusEl.textContent = `诊断状态：${statusMap[panelData.status] || panelData.status || "暂无诊断"}`;
+  if (summary.has_outliers && panelData.latest_rejection) {
+    const rejection = panelData.latest_rejection;
+    outlierEl.textContent = `异常价：${rejection.source_name} · ${formatPrice(
+      rejection.price_cny_per_gram
+    )} 已隔离`;
+  } else if (summary.invalid_source_count > 0) {
+    outlierEl.textContent = `异常价：${Number(summary.invalid_source_count)} 个来源已隔离`;
+  } else {
+    outlierEl.textContent = "异常价：最近采集未发现异常源";
+  }
 }
 
 function updateIndicators(indicators) {
@@ -972,17 +1035,45 @@ function updateForecast(panelData) {
 function renderEntryPlan(planData) {
   const summaryEl = getEl("entry-plan-summary");
   const listEl = getEl("entry-plan-list");
-  if (!summaryEl || !listEl) return;
+  const triggerStatusEl = getEl("entry-trigger-status");
+  const triggerListEl = getEl("entry-trigger-list");
+  if (!summaryEl || !listEl || !triggerStatusEl || !triggerListEl) return;
 
   if (!planData) {
     summaryEl.textContent = "等待生成入场计划";
+    triggerStatusEl.textContent = "等待条件触发判断";
+    triggerListEl.innerHTML = "<li>暂无触发条件</li>";
     listEl.innerHTML = "<li>暂无入场计划</li>";
     return;
   }
 
   const summary = planData.summary || {};
   const gate = planData.execution_gate || {};
+  const conditional = planData.conditional_triggers || {};
   const gateMessage = gate.message || "请结合当前建议决定是否执行。";
+  const statusMap = {
+    armed: "条件已满足",
+    waiting: "等待触发",
+    blocked: "暂不执行",
+    unavailable: "不可用",
+  };
+  triggerStatusEl.textContent = `${statusMap[conditional.status] || "等待触发"} · ${
+    conditional.next_action || "请等待触发条件满足。"
+  }`;
+  const conditions = Array.isArray(conditional.conditions) ? conditional.conditions : [];
+  triggerListEl.innerHTML = conditions.length
+    ? conditions
+        .map((item) => {
+          const target =
+            item.target_price == null ? "" : ` · 目标 ${formatPrice(item.target_price)}`;
+          const distance =
+            item.distance_pct == null ? "" : ` · 距离 ${formatPctCompact(item.distance_pct)}`;
+          return `<li>${escapeHtml(item.label)} · ${escapeHtml(item.status)}${target}${distance} · ${escapeHtml(
+            item.description
+          )}</li>`;
+        })
+        .join("")
+    : "<li>暂无触发条件</li>";
   summaryEl.textContent = `${gateMessage} · 均价 ${formatPrice(summary.avg_entry_price)} · 止损 ${formatPrice(
     summary.stop_loss_price
   )} · 目标 ${formatPrice(summary.target_price)} · 盈亏比 ${summary.risk_reward_ratio ?? "--"}`;
@@ -997,11 +1088,40 @@ function renderEntryPlan(planData) {
     .map((row) => {
       const budget = row.budget_cny == null ? "" : ` · 预算 ¥${Number(row.budget_cny).toFixed(2)}`;
       const qty = row.quantity_gram == null ? "" : ` · 约 ${Number(row.quantity_gram).toFixed(3)}g`;
-      return `<li>第${Number(row.batch)}批 · 买入价 ${formatPrice(row.buy_price)}${escapeHtml(
+      return `<li>第${Number(row.batch)}批 · ${escapeHtml(row.status || "waiting")} · 买入价 ${formatPrice(row.buy_price)}${escapeHtml(
         budget
-      )}${escapeHtml(qty)}</li>`;
+      )}${escapeHtml(qty)} · ${escapeHtml(row.trigger_condition || "条件满足后执行")}</li>`;
     })
     .join("");
+}
+
+function updateWeeklyReport(panelData) {
+  const summaryEl = getEl("weekly-report-summary");
+  const priceEl = getEl("weekly-report-price");
+  const adviceEl = getEl("weekly-report-advice");
+  const focusEl = getEl("weekly-report-focus");
+  if (!summaryEl || !priceEl || !adviceEl || !focusEl) return;
+
+  if (!panelData) {
+    summaryEl.textContent = "等待生成周报";
+    priceEl.textContent = "--";
+    adviceEl.textContent = "--";
+    focusEl.innerHTML = "<li>等待下周关注点</li>";
+    return;
+  }
+
+  const price = panelData.price || {};
+  const advice = panelData.advice || {};
+  const sourceQuality = panelData.source_quality || {};
+  summaryEl.textContent = `近 ${Number(panelData.period_days || 7)} 天 · 数据源 ${
+    sourceQuality.confidence_level || "unknown"
+  } · 样本 ${Number(price.sample_count || 0)}`;
+  priceEl.textContent = `${formatPrice(price.end_price)} (${formatPctCompact(price.change_pct)})`;
+  adviceEl.textContent = advice.recommendation || "暂无建议";
+  const focusItems = Array.isArray(panelData.next_week_focus) ? panelData.next_week_focus : [];
+  focusEl.innerHTML = focusItems.length
+    ? focusItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
+    : "<li>暂无下周关注点</li>";
 }
 
 async function loadEntryPlan(signal) {
@@ -2121,10 +2241,12 @@ async function loadDashboard() {
     const [
       current,
       sourceQuality,
+      sourceDiagnostics,
       history,
       indicators,
       signals,
       advice,
+      position,
       buySignal,
       signalPerformance,
       confidenceCenter,
@@ -2132,13 +2254,16 @@ async function loadDashboard() {
       macroCorrelation,
       multiTimeframe,
       forecast,
+      weeklyReport,
     ] = await Promise.all([
       fetchJSON("/api/price/current", signal),
       fetchJSON("/api/price/sources/latest", signal).catch(() => null),
+      fetchJSON("/api/price/diagnostics/latest", signal).catch(() => null),
       fetchJSON(`/api/price/history?days=${range.days}&interval=${range.interval}`, signal),
       fetchJSON("/api/analysis/indicators", signal),
       fetchJSON(`/api/analysis/signals?days=${range.days}`, signal),
       fetchJSON("/api/analysis/advice", signal).catch(() => null),
+      fetchJSON("/api/analysis/position", signal).catch(() => null),
       fetchJSON("/api/analysis/buy-signal", signal).catch(() => null),
       fetchJSON(`/api/analysis/signal-performance?window_days=${Math.max(range.days, 90)}`, signal).catch(
         () => null
@@ -2158,6 +2283,7 @@ async function loadDashboard() {
       fetchJSON(`/api/analysis/forecast?lookback_days=${Math.max(range.days, 120)}&horizon_days=7`, signal).catch(
         () => null
       ),
+      fetchJSON("/api/analysis/weekly-report?days=7", signal).catch(() => null),
     ]);
 
     if (requestId !== state.activeRequestId) {
@@ -2177,6 +2303,8 @@ async function loadDashboard() {
       advice: advice?.data || null,
       sourceQuality,
     });
+    updatePositionDecision(position?.data || null, advice?.data || null);
+    updateSourceDiagnostics(sourceDiagnostics);
 
     const items = Array.isArray(history?.items) ? history.items : [];
     updateSignalPerformance(signalPerformance?.data || null);
@@ -2185,6 +2313,7 @@ async function loadDashboard() {
     updateMacroCorrelation(macroCorrelation?.data || null);
     updateMultiTimeframe(multiTimeframe?.data || null);
     updateForecast(forecast?.data || null);
+    updateWeeklyReport(weeklyReport?.data || null);
     await loadCustomAlerts(signal);
     await loadAlertDeliveries(signal);
     await loadEntryPlan(signal);
@@ -2264,8 +2393,11 @@ async function loadDashboard() {
     updateMacroCorrelation(null);
     updateMultiTimeframe(null);
     updateForecast(null);
+    updateWeeklyReport(null);
     renderEntryPlan(null);
     updateDecisionStrip({ current: null, advice: null, sourceQuality: null });
+    updatePositionDecision(null, null);
+    updateSourceDiagnostics(null);
     updateStatus("离线", "offline");
     console.error(error);
   } finally {

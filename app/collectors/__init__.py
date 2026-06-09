@@ -121,6 +121,7 @@ class CollectorManager:
         return {
             "timestamp": datetime.now(),
             "price_cny_per_gram": round(avg_price, 2),
+            "raw_sources": sources,
             "sources": filtered_sources,
             "invalid_sources": invalid_sources,
             "aggregation": consensus,

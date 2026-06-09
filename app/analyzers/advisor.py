@@ -2,6 +2,7 @@ import json
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from app.analyzers.decision_engine import evaluate_decision_core
+from app.analyzers.position import build_current_position_advice, get_position_state
 from app.analyzers.indicators import IndicatorCalculator
 from app.database import get_db_session
 from app.market_indicators import MarketIndicators
@@ -950,6 +951,11 @@ class MarketAdvisor:
         action_guidance = self._get_action_guidance(indicators, score, recommendation)
         confidence = self._calculate_confidence(indicators, score, recommendation)
         dominant_factor = self._get_dominant_factor(indicators, score, recommendation)
+        position_payload = build_current_position_advice(
+            current_price=indicators.get("current_price"),
+            recommendation=recommendation,
+            indicators=indicators,
+        )
 
         advice = {
             "score": score,
@@ -971,6 +977,8 @@ class MarketAdvisor:
             "chart_status": self._build_chart_status(),
             "action_label": action_guidance["action_label"],
             "action_detail": action_guidance["action_detail"],
+            "position": position_payload["position"],
+            "sell_advice": position_payload["sell_advice"],
             "insights": insights,
             "risks": risks,
             "disclaimer": "本建议仅供参考,不构成投资建议,投资有风险",
@@ -990,7 +998,14 @@ class MarketAdvisor:
             if not latest:
                 return self.analyze()
 
-            cache_key = build_cache_key("analysis", self.CACHE_SCHEMA_VERSION, latest[0].isoformat())
+            position = get_position_state()
+            position_version = position.get("updated_at") or "no-position"
+            cache_key = build_cache_key(
+                "analysis",
+                self.CACHE_SCHEMA_VERSION,
+                latest[0].isoformat(),
+                position_version,
+            )
 
         cached = get_json_cache(cache_key)
         if cached is not None:
